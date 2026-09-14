@@ -22,6 +22,12 @@ import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import {
+  facebookPageUrl,
+  findFacebookStoryUrl,
+} from '@gitroom/nestjs-libraries/integrations/social/facebook-story-url';
+
+export const META_GRAPH_API_VERSION = 'v25.0';
 
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story."
@@ -239,7 +245,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     const state = makeId(6);
     return {
       url:
-        'https://www.facebook.com/v20.0/dialog/oauth' +
+        `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth` +
         `?client_id=${process.env.FACEBOOK_APP_ID}` +
         `&redirect_uri=${encodeURIComponent(
           `${process.env.FRONTEND_URL}/integrations/social/facebook`
@@ -276,7 +282,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   }) {
     const getAccessToken = await (
       await fetch(
-        'https://graph.facebook.com/v20.0/oauth/access_token' +
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
           `?client_id=${process.env.FACEBOOK_APP_ID}` +
           `&redirect_uri=${encodeURIComponent(
             `${process.env.FRONTEND_URL}/integrations/social/facebook${
@@ -290,7 +296,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     const { access_token } = await (
       await fetch(
-        'https://graph.facebook.com/v20.0/oauth/access_token' +
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
           '?grant_type=fb_exchange_token' +
           `&client_id=${process.env.FACEBOOK_APP_ID}` +
           `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
@@ -300,7 +306,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     const { data } = await (
       await fetch(
-        `https://graph.facebook.com/v20.0/me/permissions?access_token=${access_token}`
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/permissions?access_token=${access_token}`
       )
     ).json();
 
@@ -311,7 +317,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     const { id, name, picture } = await (
       await fetch(
-        `https://graph.facebook.com/v20.0/me?fields=id,name,picture&access_token=${access_token}`
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?fields=id,name,picture&access_token=${access_token}`
       )
     ).json();
 
@@ -348,7 +354,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     // Fetch pages the user explicitly shared during the OAuth dialog
     await fetchPaginated(
-      `https://graph.facebook.com/v20.0/me/accounts?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
     );
 
     // Also fetch pages via Business Manager API to discover pages
@@ -356,7 +362,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     try {
       let bizUrl:
         | string
-        | undefined = `https://graph.facebook.com/v20.0/me/businesses?access_token=${accessToken}`;
+        | undefined = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/businesses?access_token=${accessToken}`;
 
       while (bizUrl) {
         const bizResponse = await (await fetch(bizUrl)).json();
@@ -364,7 +370,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           for (const business of bizResponse.data) {
             try {
               await fetchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/owned_pages?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
+                `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${business.id}/owned_pages?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
               );
             } catch {
               // Continue with other businesses
@@ -372,7 +378,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
             try {
               await fetchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/client_pages?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
+                `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${business.id}/client_pages?fields=id,username,name,access_token,picture.type(large)&limit=100&access_token=${accessToken}`
               );
             } catch {
               // Continue with other businesses
@@ -417,7 +423,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     // 1. Check /me/accounts
     const fromAccounts = await searchPaginated(
-      `https://graph.facebook.com/v20.0/me/accounts?fields=${fields}&limit=100&access_token=${accessToken}`
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=${fields}&limit=100&access_token=${accessToken}`
     );
     if (fromAccounts) return fromAccounts;
 
@@ -425,7 +431,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     try {
       let bizUrl:
         | string
-        | undefined = `https://graph.facebook.com/v20.0/me/businesses?access_token=${accessToken}`;
+        | undefined = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/businesses?access_token=${accessToken}`;
 
       while (bizUrl) {
         const bizResponse = await (await fetch(bizUrl)).json();
@@ -433,7 +439,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           for (const business of bizResponse.data) {
             try {
               const fromOwned = await searchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/owned_pages?fields=${fields}&limit=100&access_token=${accessToken}`
+                `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${business.id}/owned_pages?fields=${fields}&limit=100&access_token=${accessToken}`
               );
               if (fromOwned) return fromOwned;
             } catch {
@@ -442,7 +448,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
             try {
               const fromClient = await searchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/client_pages?fields=${fields}&limit=100&access_token=${accessToken}`
+                `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${business.id}/client_pages?fields=${fields}&limit=100&access_token=${accessToken}`
               );
               if (fromClient) return fromClient;
             } catch {
@@ -464,7 +470,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   private async fbVideoStatus(videoId: string, accessToken: string) {
     const { status } = await (
       await this.fetch(
-        `https://graph.facebook.com/v20.0/${videoId}?fields=status&access_token=${accessToken}`,
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${videoId}?fields=status&access_token=${accessToken}`,
         undefined,
         '',
         0,
@@ -504,7 +510,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         if (hasExtension(media.path, 'mp4')) {
           const { video_id, upload_url } = await (
             await this.fetch(
-              `https://graph.facebook.com/v20.0/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
+              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
               {
                 method: 'POST',
               },
@@ -528,7 +534,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         } else {
           const { id: photoId } = await (
             await this.fetch(
-              `https://graph.facebook.com/v20.0/${id}/photos?access_token=${accessToken}`,
+              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
               {
                 method: 'POST',
                 headers: {
@@ -646,8 +652,8 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     const { post_id: storyPostId } = await (
       await this.fetch(
         item.kind === 'video'
-          ? `https://graph.facebook.com/v20.0/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
-          : `https://graph.facebook.com/v20.0/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
+          ? `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
+          : `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
         {
           method: 'POST',
         },
@@ -672,11 +678,59 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       };
     }
 
+    // Facebook's photo_stories/video_stories publish response contains a
+    // post_id, but that ID is not the public Story viewer URL. Meta exposes
+    // the canonical URL on the Page Stories edge; use it instead of building
+    // the known-invalid /stories/<post_id> URL. URL lookup is cosmetic after
+    // the publish mutation, so a lookup failure must not cause a retry that
+    // could publish a duplicate Story.
+    const releaseURL = await this.resolveFacebookStoryUrl(
+      storyPostId,
+      accessToken,
+      integration
+    );
+
     return {
       status: 'completed',
       postId: storyPostId,
-      releaseURL: `https://www.facebook.com/stories/${storyPostId}`,
+      releaseURL,
     };
+  }
+
+  private async resolveFacebookStoryUrl(
+    storyPostId: string,
+    accessToken: string,
+    integration: Integration
+  ): Promise<string> {
+    const pageUrl = facebookPageUrl(
+      integration.profile,
+      integration.internalId
+    );
+
+    try {
+      const response = await this.fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${
+          integration.internalId
+        }/stories?fields=post_id,url&access_token=${encodeURIComponent(
+          accessToken
+        )}`,
+        undefined,
+        'resolve Facebook Story URL'
+      );
+      const body = await response.json();
+      const canonicalUrl = findFacebookStoryUrl(body?.data, storyPostId);
+
+      if (canonicalUrl) return canonicalUrl;
+    } catch {
+      // The Story is already live. Never rethrow a cosmetic URL lookup error:
+      // the workflow would otherwise retry the publish mutation and risk a
+      // duplicate. The durable Page URL below is explicit and honest.
+    }
+
+    console.warn(
+      '[facebook] Story published but Meta did not return a canonical Story URL; using the Page URL fallback'
+    );
+    return pageUrl;
   }
 
   // Old blocking behavior, kept for workflow versions before v1.0.6 that don't
@@ -764,7 +818,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         ...all
       } = await (
         await this.fetch(
-          `https://graph.facebook.com/v20.0/${id}/videos?access_token=${accessToken}&fields=id,permalink_url`,
+          `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/videos?access_token=${accessToken}&fields=id,permalink_url`,
           {
             method: 'POST',
             headers: {
@@ -789,7 +843,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
             firstPost.media.map(async (media) => {
               const { id: photoId } = await (
                 await this.fetch(
-                  `https://graph.facebook.com/v20.0/${id}/photos?access_token=${accessToken}`,
+                  `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
                   {
                     method: 'POST',
                     headers: {
@@ -821,7 +875,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       const publishFeed = async (withPreset: boolean) =>
         (
           await this.fetch(
-            `https://graph.facebook.com/v20.0/${id}/feed?access_token=${accessToken}&fields=id,permalink_url`,
+            `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/feed?access_token=${accessToken}&fields=id,permalink_url`,
             {
               method: 'POST',
               headers: {
@@ -920,7 +974,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     const data = await (
       await this.fetch(
-        `https://graph.facebook.com/v20.0/${replyToId}/comments?access_token=${accessToken}&fields=id,permalink_url`,
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${replyToId}/comments?access_token=${accessToken}&fields=id,permalink_url`,
         {
           method: 'POST',
           headers: {
@@ -963,7 +1017,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     //   - page_media_view: total media views, broken down between paid and organic
     const { data } = await (
       await fetch(
-        `https://graph.facebook.com/v23.0/${id}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows&access_token=${accessToken}&period=day&since=${since}&until=${until}`
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows&access_token=${accessToken}&period=day&since=${since}&until=${until}`
       )
     ).json();
 
@@ -1013,7 +1067,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       // Graph API v23.0+. Engagement metrics below are unaffected.
       const { data } = await (
         await fetch(
-          `https://graph.facebook.com/v23.0/${postId}/insights?metric=post_total_media_view_unique,post_reactions_by_type_total,post_clicks,post_clicks_by_type&access_token=${accessToken}`
+          `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${postId}/insights?metric=post_total_media_view_unique,post_reactions_by_type_total,post_clicks,post_clicks_by_type&access_token=${accessToken}`
         )
       ).json();
 
