@@ -22,6 +22,10 @@ import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import {
+  facebookPageUrl,
+  findFacebookStoryUrl,
+} from '@gitroom/nestjs-libraries/integrations/social/facebook-story-url';
 
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story."
@@ -672,11 +676,59 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       };
     }
 
+    // Facebook's photo_stories/video_stories publish response contains a
+    // post_id, but that ID is not the public Story viewer URL. Meta exposes
+    // the canonical URL on the Page Stories edge; use it instead of building
+    // the known-invalid /stories/<post_id> URL. URL lookup is cosmetic after
+    // the publish mutation, so a lookup failure must not cause a retry that
+    // could publish a duplicate Story.
+    const releaseURL = await this.resolveFacebookStoryUrl(
+      storyPostId,
+      accessToken,
+      integration
+    );
+
     return {
       status: 'completed',
       postId: storyPostId,
-      releaseURL: `https://www.facebook.com/stories/${storyPostId}`,
+      releaseURL,
     };
+  }
+
+  private async resolveFacebookStoryUrl(
+    storyPostId: string,
+    accessToken: string,
+    integration: Integration
+  ): Promise<string> {
+    const pageUrl = facebookPageUrl(
+      integration.profile,
+      integration.internalId
+    );
+
+    try {
+      const response = await this.fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${
+          integration.internalId
+        }/stories?fields=post_id,url&access_token=${encodeURIComponent(
+          accessToken
+        )}`,
+        undefined,
+        'resolve Facebook Story URL'
+      );
+      const body = await response.json();
+      const canonicalUrl = findFacebookStoryUrl(body?.data, storyPostId);
+
+      if (canonicalUrl) return canonicalUrl;
+    } catch {
+      // The Story is already live. Never rethrow a cosmetic URL lookup error:
+      // the workflow would otherwise retry the publish mutation and risk a
+      // duplicate. The durable Page URL below is explicit and honest.
+    }
+
+    console.warn(
+      '[facebook] Story published but Meta did not return a canonical Story URL; using the Page URL fallback'
+    );
+    return pageUrl;
   }
 
   // Old blocking behavior, kept for workflow versions before v1.0.6 that don't
