@@ -27,6 +27,8 @@ import {
   findFacebookStoryUrl,
 } from '@gitroom/nestjs-libraries/integrations/social/facebook-story-url';
 
+export const META_GRAPH_API_VERSION = 'v20.0';
+
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story."
 )
