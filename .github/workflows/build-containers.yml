@@ -25,7 +25,7 @@ jobs:
   build-containers:
     needs: build-containers-common
     env:
-      IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/postiz-app
+      IMAGE_REPOSITORY: ghcr.io/yanlonglai/postiz-app
     strategy:
       matrix:
         include:
@@ -67,7 +67,7 @@ jobs:
   build-container-manifest:
     needs: [build-containers, build-containers-common]
     env:
-      IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/postiz-app
+      IMAGE_REPOSITORY: ghcr.io/yanlonglai/postiz-app
     runs-on: ubuntu-latest
     steps:
       - name: Login to ghcr
