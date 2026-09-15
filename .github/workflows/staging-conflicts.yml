@@ -1,14 +1,15 @@
 name: Resolve staging conflicts
 
-# Reproduces a staging <- main merge inside the runner. If it conflicts, Claude
-# resolves the conflicts and creates the merge commit. Nothing is commented,
-# nothing is pushed unless the resolution passes every verification below.
+# Reproduces a staging <- main merge inside the runner. CI-only conflicts are
+# resolved deterministically by taking main's copy. Application conflicts stop
+# fail-closed for a human-reviewed resolution. Nothing is commented or pushed
+# unless the resolution passes every verification below.
 #
-# claude-code-action rejects `push` events, so detection runs on a schedule.
+# Detection runs on a schedule and can also be invoked manually; push events
+# never run a write-capable resolver.
 #
-# Required secrets:
-#   STAGING_MERGE_KEY         private half of a write-enabled deploy key
-#   CLAUDE_CODE_OAUTH_TOKEN   Claude API key, despite the secret name
+# Required secret:
+#   STAGING_MERGE_KEY         base64(private half of a write-enabled deploy key)
 
 on:
   schedule:
@@ -32,18 +33,26 @@ jobs:
         with:
           ref: staging
           fetch-depth: 0
-          ssh-key: ${{ secrets.STAGING_MERGE_KEY }}
-          persist-credentials: true
+          persist-credentials: false
 
       # Runs before anything billable. If the deploy key cannot push, the job
       # dies here at zero cost instead of after a paid resolution.
       - name: Configure push credentials
         env:
-          SSH_KEY: ${{ secrets.STAGING_MERGE_KEY }}
+          SSH_KEY_B64: ${{ secrets.STAGING_MERGE_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/staging_merge
+          if [ -z "$SSH_KEY_B64" ]; then
+            echo "::error::STAGING_MERGE_KEY is not configured"
+            exit 1
+          fi
+          printf '%s' "$SSH_KEY_B64" | base64 --decode > ~/.ssh/staging_merge
           chmod 600 ~/.ssh/staging_merge
+          if ! ssh-keygen -y -f ~/.ssh/staging_merge > /dev/null; then
+            echo "::error::STAGING_MERGE_KEY is not a valid base64-encoded OpenSSH private key"
+            exit 1
+          fi
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
           echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/staging_merge -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
 
@@ -72,7 +81,8 @@ jobs:
           fi
 
       # CI definitions always come from main, so conflicts under .github/ are
-      # settled here by taking main's side. This keeps Claude away from them
+      # settled here by taking main's side. This keeps application resolution
+      # separate from CI policy
       # and stops this workflow from deadlocking on edits to itself: it was
       # added independently on both branches, so git sees add/add and every
       # change to it on main conflicts no matter how staging's copy looks.
@@ -90,35 +100,16 @@ jobs:
           xargs -0 git checkout --theirs -- < /tmp/ci_paths
           xargs -0 git add -- < /tmp/ci_paths
 
-      - name: Resolve with Claude
+      - name: Resolve deterministic conflicts or stop
         if: steps.probe.outputs.conflicted == 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          allowed_bots: "github-actions[bot]"
-          prompt: |
-            The repository is checked out on `staging`, part-way through
-            `git merge --no-ff origin/main`, and the merge has conflicts.
-
-            Resolve every conflicted file so the result preserves the intent of
-            both sides. Then `git add` the resolved paths and create the merge
-            commit with:
-
-              git commit --no-edit --trailer "Resolved-by: claude-code-action"
-
-            Constraints:
-            - Change nothing beyond what the conflict resolution requires.
-            - Do not push, switch branches, create branches, or amend history.
-            - Do not post comments, open issues, or touch any pull request.
-            - Never modify anything under `.github/`. Conflicts there are
-              already resolved and staged for you; leave them exactly as they
-              are and resolve only the remaining paths.
-            - If a conflict is ambiguous enough that you would be guessing at
-              the correct resolution, stop without committing and explain why.
-          claude_args: |
-            --model claude-sonnet-5
-            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git add:*),Bash(git commit:*)"
+        run: |
+          set -euo pipefail
+          if git ls-files -u | grep -q .; then
+            echo "::error::Application merge conflicts remain; manual reviewed resolution is required"
+            git ls-files -u
+            exit 1
+          fi
+          git commit --no-edit --trailer "Resolved-by: postiz-ci-policy"
 
       - name: Verify resolution
         if: steps.probe.outputs.conflicted == 'true'
