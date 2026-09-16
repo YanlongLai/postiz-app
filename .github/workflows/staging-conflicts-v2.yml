@@ -1,0 +1,154 @@
+name: Resolve staging conflicts (v2)
+
+# Versioned replacement for staging-conflicts.yml. The original workflow is
+# intentionally left unchanged because it is already part of main's history.
+# This resolver uses the short-lived repository token instead of a long-lived
+# SSH deploy key, so a malformed legacy STAGING_MERGE_KEY cannot block checkout.
+# Application conflicts remain fail-closed and require a human-reviewed change.
+#
+# Authentication requirement:
+#   contents: write on the workflow token (no repository secret is required).
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: staging-conflict-resolve-v2
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout staging
+        uses: actions/checkout@v6
+        with:
+          ref: staging
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: true
+
+      # Fetch the two refs explicitly so the merge input is unambiguous even
+      # if checkout's ref-specific fetch behavior changes in a future action.
+      - name: Refresh merge refs
+        run: git fetch --no-tags origin main staging
+
+      # Exercises the same token-backed path used by the final push, before
+      # any merge work is performed. No secret value is written to the log.
+      - name: Preflight push
+        run: |
+          set -euo pipefail
+          git push --dry-run origin HEAD:staging
+          echo "repository token push path verified"
+
+      - name: Probe merge
+        id: probe
+        run: |
+          set -euo pipefail
+          git config user.name "postiz-merge-bot"
+          git config user.email "bot@postiz.com"
+
+          if git merge --no-commit --no-ff origin/main; then
+            git merge --abort 2>/dev/null || git reset --hard HEAD
+            echo "conflicted=false" >> "$GITHUB_OUTPUT"
+            echo "staging merges cleanly into main, nothing to do"
+          else
+            echo "conflicted=true" >> "$GITHUB_OUTPUT"
+            echo "Conflicted paths:"
+            git diff --name-only --diff-filter=U
+          fi
+
+      # CI definitions always come from main. Only unmerged CI paths are
+      # resolved automatically; application paths are never guessed at.
+      - name: Take main's CI definitions
+        if: steps.probe.outputs.conflicted == 'true'
+        run: |
+          set -euo pipefail
+          git diff --name-only -z --diff-filter=U -- .github/ > /tmp/ci_paths
+          if [ ! -s /tmp/ci_paths ]; then
+            echo "no conflicts under .github/"
+            exit 0
+          fi
+
+          echo "taking main's copy of:"
+          tr '\0' '\n' < /tmp/ci_paths
+          xargs -0 git checkout --theirs -- < /tmp/ci_paths
+          xargs -0 git add -- < /tmp/ci_paths
+
+      - name: Stop on application conflicts
+        if: steps.probe.outputs.conflicted == 'true'
+        run: |
+          set -euo pipefail
+          if git ls-files -u | grep -q .; then
+            echo "::error::Application merge conflicts remain; manual reviewed resolution is required"
+            git ls-files -u
+            exit 1
+          fi
+          git commit --no-edit --trailer "Resolved-by: postiz-ci-policy"
+
+      - name: Verify resolution
+        if: steps.probe.outputs.conflicted == 'true'
+        run: |
+          set -euo pipefail
+          if git ls-files -u | grep -q .; then
+            echo "::error::Unmerged paths remain in the index"
+            git ls-files -u
+            exit 1
+          fi
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            echo "::error::Merge was never committed"
+            exit 1
+          fi
+
+          if git grep -nI -e '^<<<<<<< ' -e '^=======$' -e '^>>>>>>> ' HEAD; then
+            echo "::error::Conflict markers present in the committed tree"
+            exit 1
+          fi
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Working tree is dirty after the commit"
+            git status --porcelain
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::error::HEAD does not contain origin/main, wrong commit shape"
+            exit 1
+          fi
+
+          # A resolver must not introduce or preserve a CI definition that
+          # differs from main's copy.
+          while IFS= read -r -d '' path; do
+            if ! git diff --quiet origin/main HEAD -- "$path"; then
+              echo "::error::$path differs from main's copy, refusing"
+              git diff origin/main HEAD -- "$path"
+              exit 1
+            fi
+          done < <(git diff --name-only -z origin/staging..HEAD -- .github/)
+
+          echo "Resolution commit:"
+          git log -1 --stat
+
+      # Archive before the push so the commit is recoverable if GitHub rejects
+      # the write at a later stage.
+      - name: Archive resolution
+        if: steps.probe.outputs.conflicted == 'true'
+        run: git bundle create /tmp/resolved.bundle HEAD ^origin/staging ^origin/main
+
+      - uses: actions/upload-artifact@v4
+        if: steps.probe.outputs.conflicted == 'true'
+        with:
+          name: staging-resolution-${{ github.run_id }}
+          path: /tmp/resolved.bundle
+          retention-days: 14
+
+      - name: Push staging
+        if: steps.probe.outputs.conflicted == 'true'
+        run: git push origin HEAD:staging
