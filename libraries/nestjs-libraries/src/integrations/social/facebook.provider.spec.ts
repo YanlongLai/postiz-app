@@ -1,4 +1,8 @@
-import { FacebookProvider } from './facebook.provider';
+import {
+  FACEBOOK_STORY_GRAPH_API_VERSION,
+  FacebookProvider,
+  META_GRAPH_API_VERSION,
+} from './facebook.provider';
 
 function jsonResponse(value: unknown): Response {
   return { json: async () => value } as Response;
@@ -9,6 +13,11 @@ describe('FacebookProvider Story publishing', () => {
     internalId: 'page-id',
     profile: 'dappgo',
   } as any;
+
+  it('keeps general Facebook calls on v25 and Story calls on v20', () => {
+    expect(META_GRAPH_API_VERSION).toBe('v25.0');
+    expect(FACEBOOK_STORY_GRAPH_API_VERSION).toBe('v20.0');
+  });
 
   it('stores the canonical Story URL returned by the Page Stories edge', async () => {
     const provider = new FacebookProvider();
@@ -46,8 +55,18 @@ describe('FacebookProvider Story publishing', () => {
         'https://www.facebook.com/stories/page/token/?view_single=1',
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(
+        'https://graph.facebook.com/v20.0/page-id/photo_stories?photo_id=photo-id&access_token='
+      ),
+      { method: 'POST' },
+      'publish photo story'
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining('/page-id/stories?fields=post_id,url&access_token='),
+      expect.stringContaining(
+        'https://graph.facebook.com/v20.0/page-id/stories?fields=post_id,url&access_token='
+      ),
       undefined,
       'resolve Facebook Story URL'
     );
