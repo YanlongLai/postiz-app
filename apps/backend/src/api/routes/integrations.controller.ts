@@ -260,7 +260,12 @@ export class IntegrationsController {
 
       return { url };
     } catch (err) {
-      return { err: true };
+      const message =
+        err instanceof Error &&
+        err.message.startsWith('LinkedIn OAuth is not configured')
+          ? err.message
+          : 'Unable to start integration authorization. Check provider configuration.';
+      return { err: true, message };
     }
   }
 

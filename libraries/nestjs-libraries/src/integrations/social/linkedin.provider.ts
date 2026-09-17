@@ -24,6 +24,23 @@ import imageToPDF from 'image-to-pdf';
 import { Readable } from 'stream';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
+export const requireLinkedinOAuthConfig = () => {
+  const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+  const missing = [
+    !clientId ? 'LINKEDIN_CLIENT_ID' : undefined,
+    !clientSecret ? 'LINKEDIN_CLIENT_SECRET' : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  if (missing.length) {
+    throw new Error(
+      `LinkedIn OAuth is not configured: missing ${missing.join(' and ')}`
+    );
+  }
+
+  return { clientId, clientSecret };
+};
+
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost - keep it small JSON (media urns and the post content, never
 // buffers).
@@ -116,7 +133,10 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
       };
     }
 
-    if (body.indexOf('resource is forbidden') > -1 || body.indexOf('Service Unavailable') > -1) {
+    if (
+      body.indexOf('resource is forbidden') > -1 ||
+      body.indexOf('Service Unavailable') > -1
+    ) {
       return {
         type: 'retry',
         value: 'Resource is forbidden',
@@ -127,6 +147,7 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
   }
 
   async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
+    const { clientId, clientSecret } = requireLinkedinOAuthConfig();
     const {
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -140,8 +161,8 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
         body: new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token,
-          client_id: process.env.LINKEDIN_CLIENT_ID!,
-          client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+          client_id: clientId,
+          client_secret: clientSecret,
         }),
       })
     ).json();
@@ -178,11 +199,10 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
   }
 
   async generateAuthUrl() {
+    const { clientId } = requireLinkedinOAuthConfig();
     const state = makeId(6);
     const codeVerifier = makeId(30);
-    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${
-      process.env.LINKEDIN_CLIENT_ID
-    }&prompt=none&redirect_uri=${encodeURIComponent(
+    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
       `${process.env.FRONTEND_URL}/integrations/social/linkedin`
     )}&state=${state}&scope=${encodeURIComponent(this.scopes.join(' '))}`;
     return {
@@ -197,6 +217,7 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
     codeVerifier: string;
     refresh?: string;
   }) {
+    const { clientId, clientSecret } = requireLinkedinOAuthConfig();
     const body = new URLSearchParams();
     body.append('grant_type', 'authorization_code');
     body.append('code', params.code);
@@ -206,8 +227,8 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
         params.refresh ? `?refresh=${params.refresh}` : ''
       }`
     );
-    body.append('client_id', process.env.LINKEDIN_CLIENT_ID!);
-    body.append('client_secret', process.env.LINKEDIN_CLIENT_SECRET!);
+    body.append('client_id', clientId);
+    body.append('client_secret', clientSecret);
 
     const {
       access_token: accessToken,
@@ -555,10 +576,10 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
 
     // Create a PDF sized to the largest image; it fills the page,
     // smaller images are fitted and centered within the same dimensions
-    const pdfStream = imageToPDF(
-      imageBuffers,
-      [largest.width, largest.height]
-    ) as unknown as Readable;
+    const pdfStream = imageToPDF(imageBuffers, [
+      largest.width,
+      largest.height,
+    ]) as unknown as Readable;
     const pdfBuffer = await this.streamToBuffer(pdfStream);
 
     // Replace the first post's media with the single PDF
@@ -676,7 +697,9 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
     // DISABLE_IMAGE_COMPRESSION=true, where the frontend no longer shrinks
     // uploads and full-size images reach LinkedIn directly. Do not remove it on
     // the assumption that the frontend compression already caps dimensions.
-    const pipeline = sharp(await readOrFetch(mediaUrl), { animated: false }).resize({
+    const pipeline = sharp(await readOrFetch(mediaUrl), {
+      animated: false,
+    }).resize({
       width: 6000,
       height: 6000,
       fit: 'inside',
@@ -686,7 +709,11 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
     return await (keepFormat ? pipeline : pipeline.toFormat('jpeg')).toBuffer();
   }
 
-  private buildPostContent(isPdf: boolean, mediaIds: string[], pdfTitle?: string) {
+  private buildPostContent(
+    isPdf: boolean,
+    mediaIds: string[],
+    pdfTitle?: string
+  ) {
     if (mediaIds.length === 0) {
       return {};
     }
@@ -795,9 +822,9 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
       {
         method: 'POST',
         headers: {
-        'LinkedIn-Version': '202306',
-        'X-Restli-Protocol-Version': '2.0.0',
-        'Content-Type': 'application/json',
+          'LinkedIn-Version': '202306',
+          'X-Restli-Protocol-Version': '2.0.0',
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
@@ -840,7 +867,9 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
   ): Promise<PostResponse[]> {
     let processedPostDetails = postDetails;
     const [firstPost] = postDetails;
-    const isPdf = this.assetBoolean(firstPost.settings?.post_as_images_carousel);
+    const isPdf = this.assetBoolean(
+      firstPost.settings?.post_as_images_carousel
+    );
 
     // Check if we should convert images to PDF carousel
     if (isPdf) {

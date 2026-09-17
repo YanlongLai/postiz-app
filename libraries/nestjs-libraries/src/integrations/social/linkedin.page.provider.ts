@@ -6,12 +6,50 @@ import {
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
-import { LinkedinProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
+import {
+  LinkedinProvider,
+  requireLinkedinOAuthConfig,
+} from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
 import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { Plug } from '@gitroom/helpers/decorators/plug.decorator';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+const linkedinAnalyticsHeaders = (accessToken: string) => ({
+  Authorization: `Bearer ${accessToken}`,
+  'Linkedin-Version': '202601',
+  'X-Restli-Protocol-Version': '2.0.0',
+});
+
+const fetchLinkedinAnalyticsElements = async (
+  metric: string,
+  url: string,
+  accessToken: string
+): Promise<Root[]> => {
+  try {
+    const response = await fetch(url, {
+      headers: linkedinAnalyticsHeaders(accessToken),
+    });
+
+    if (!response.ok) {
+      console.warn('[linkedin-page] analytics request failed', {
+        metric,
+        status: response.status,
+      });
+      return [];
+    }
+
+    const body = await response.json();
+    return Array.isArray(body?.elements) ? body.elements : [];
+  } catch (error) {
+    console.warn('[linkedin-page] analytics request errored', {
+      metric,
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
+    return [];
+  }
+};
 
 @Rules(
   'LinkedIn can have maximum one attachment when selecting video, when choosing a carousel on LinkedIn minimum amount of attachment must be two, and only pictures, if uploading a video, LinkedIn can have only one attachment'
@@ -40,6 +78,7 @@ export class LinkedinPageProvider
   override async refreshToken(
     refresh_token: string
   ): Promise<AuthTokenDetails> {
+    const { clientId, clientSecret } = requireLinkedinOAuthConfig();
     const {
       access_token: accessToken,
       expires_in,
@@ -53,8 +92,8 @@ export class LinkedinPageProvider
         body: new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token,
-          client_id: process.env.LINKEDIN_CLIENT_ID!,
-          client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+          client_id: clientId,
+          client_secret: clientSecret,
         }),
       })
     ).json();
@@ -94,7 +133,7 @@ export class LinkedinPageProvider
     integration: Integration,
     originalIntegration: Integration,
     postId: string,
-    information: any,
+    information: any
   ) {
     return super.addComment(
       integration,
@@ -121,11 +160,12 @@ export class LinkedinPageProvider
   }
 
   override async generateAuthUrl() {
+    const { clientId } = requireLinkedinOAuthConfig();
     const state = makeId(6);
     const codeVerifier = makeId(30);
-    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&prompt=none&client_id=${
-      process.env.LINKEDIN_CLIENT_ID
-    }&redirect_uri=${encodeURIComponent(
+    // A refresh may be the first interactive authorization on this browser;
+    // silent authorization turns that valid flow into a generic LinkedIn error.
+    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
       `${process.env.FRONTEND_URL}/integrations/social/linkedin-page`
     )}&state=${state}&scope=${encodeURIComponent(this.scopes.join(' '))}`;
     return {
@@ -212,6 +252,7 @@ export class LinkedinPageProvider
     codeVerifier: string;
     refresh?: string;
   }) {
+    const { clientId, clientSecret } = requireLinkedinOAuthConfig();
     const body = new URLSearchParams();
     body.append('grant_type', 'authorization_code');
     body.append('code', params.code);
@@ -219,8 +260,8 @@ export class LinkedinPageProvider
       'redirect_uri',
       `${process.env.FRONTEND_URL}/integrations/social/linkedin-page`
     );
-    body.append('client_id', process.env.LINKEDIN_CLIENT_ID!);
-    body.append('client_secret', process.env.LINKEDIN_CLIENT_SECRET!);
+    body.append('client_id', clientId);
+    body.append('client_secret', clientSecret);
 
     const {
       access_token: accessToken,
@@ -323,60 +364,41 @@ export class LinkedinPageProvider
     const endDate = dayjs().unix() * 1000;
     const startDate = dayjs().subtract(date, 'days').unix() * 1000;
 
-    const { elements }: { elements: Root[]; paging: any } = await (
-      await fetch(
-        `https://api.linkedin.com/v2/organizationPageStatistics?q=organization&organization=${encodeURIComponent(
-          `urn:li:organization:${id}`
-        )}&timeIntervals=(timeRange:(start:${startDate},end:${endDate}),timeGranularityType:DAY)`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Linkedin-Version': '202601',
-            'X-Restli-Protocol-Version': '2.0.0',
-          },
-        }
-      )
-    ).json();
-
-    const { elements: elements2 }: { elements: Root[]; paging: any } = await (
-      await fetch(
-        `https://api.linkedin.com/v2/organizationalEntityFollowerStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(
-          `urn:li:organization:${id}`
-        )}&timeIntervals=(timeRange:(start:${startDate},end:${endDate}),timeGranularityType:DAY)`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Linkedin-Version': '202601',
-            'X-Restli-Protocol-Version': '2.0.0',
-          },
-        }
-      )
-    ).json();
-
-    const { elements: elements3 }: { elements: Root[]; paging: any } = await (
-      await fetch(
-        `https://api.linkedin.com/v2/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(
-          `urn:li:organization:${id}`
-        )}&timeIntervals=(timeRange:(start:${startDate},end:${endDate}),timeGranularityType:DAY)`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Linkedin-Version': '202601',
-            'X-Restli-Protocol-Version': '2.0.0',
-          },
-        }
-      )
-    ).json();
+    const organization = encodeURIComponent(`urn:li:organization:${id}`);
+    const timeIntervals = `(timeRange:(start:${startDate},end:${endDate}),timeGranularityType:DAY)`;
+    const elements = await fetchLinkedinAnalyticsElements(
+      'page-statistics',
+      `https://api.linkedin.com/v2/organizationPageStatistics?q=organization&organization=${organization}&timeIntervals=${timeIntervals}`,
+      accessToken
+    );
+    const elements2 = await fetchLinkedinAnalyticsElements(
+      'follower-statistics',
+      `https://api.linkedin.com/v2/organizationalEntityFollowerStatistics?q=organizationalEntity&organizationalEntity=${organization}&timeIntervals=${timeIntervals}`,
+      accessToken
+    );
+    const elements3 = await fetchLinkedinAnalyticsElements(
+      'share-statistics',
+      `https://api.linkedin.com/v2/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${organization}&timeIntervals=${timeIntervals}`,
+      accessToken
+    );
 
     const analytics = [...elements2, ...elements, ...elements3].reduce(
       (all, current) => {
+        const currentDate = current?.timeRange?.start
+          ? dayjs(current.timeRange.start).format('YYYY-MM-DD')
+          : undefined;
+
+        if (!currentDate) {
+          return all;
+        }
+
         if (
           typeof current?.totalPageStatistics?.views?.allPageViews
             ?.pageViews !== 'undefined'
         ) {
           all['Page Views'].push({
             total: current.totalPageStatistics.views.allPageViews.pageViews,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
         }
 
@@ -385,36 +407,36 @@ export class LinkedinPageProvider
         ) {
           all['Organic Followers'].push({
             total: current?.followerGains?.organicFollowerGain,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
         }
 
         if (typeof current?.followerGains?.paidFollowerGain !== 'undefined') {
           all['Paid Followers'].push({
             total: current?.followerGains?.paidFollowerGain,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
         }
 
         if (typeof current?.totalShareStatistics !== 'undefined') {
           all['Clicks'].push({
             total: current?.totalShareStatistics.clickCount,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
 
           all['Shares'].push({
             total: current?.totalShareStatistics.shareCount,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
 
           all['Engagement'].push({
             total: current?.totalShareStatistics.engagement,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
 
           all['Comments'].push({
             total: current?.totalShareStatistics.commentCount,
-            date: dayjs(current.timeRange.start).format('YYYY-MM-DD'),
+            date: currentDate,
           });
         }
 
