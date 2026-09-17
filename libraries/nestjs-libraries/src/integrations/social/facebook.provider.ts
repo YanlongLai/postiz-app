@@ -28,6 +28,10 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/facebook-story-url';
 
 export const META_GRAPH_API_VERSION = 'v25.0';
+// Meta's Page Story edges still require the v20 contract used by DappGo's
+// Story publish flow. Keep general Page, Feed, OAuth, and analytics calls on
+// the current Graph API version instead of globally downgrading the provider.
+export const FACEBOOK_STORY_GRAPH_API_VERSION = 'v20.0';
 
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story."
@@ -470,7 +474,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   private async fbVideoStatus(videoId: string, accessToken: string) {
     const { status } = await (
       await this.fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${videoId}?fields=status&access_token=${accessToken}`,
+        `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${videoId}?fields=status&access_token=${accessToken}`,
         undefined,
         '',
         0,
@@ -510,7 +514,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         if (hasExtension(media.path, 'mp4')) {
           const { video_id, upload_url } = await (
             await this.fetch(
-              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
+              `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
               {
                 method: 'POST',
               },
@@ -534,7 +538,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         } else {
           const { id: photoId } = await (
             await this.fetch(
-              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
+              `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
               {
                 method: 'POST',
                 headers: {
@@ -652,8 +656,8 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     const { post_id: storyPostId } = await (
       await this.fetch(
         item.kind === 'video'
-          ? `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
-          : `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
+          ? `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
+          : `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
         {
           method: 'POST',
         },
@@ -709,7 +713,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
 
     try {
       const response = await this.fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${
+        `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${
           integration.internalId
         }/stories?fields=post_id,url&access_token=${encodeURIComponent(
           accessToken
