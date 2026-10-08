@@ -284,3 +284,30 @@ author/committer identity matching the intentional Owner identity in canonical
 fork and Meta history, verified by ai001_safe_commit.py. No global Git identity
 configuration, push, live database operation, deployment or publication is part
 of this commit authorization.
+
+## Explicit workflow activation remediation
+
+The focused implementation was committed as f58bddb03d40c3f92eb1544ffb46b13ff991e737
+with verified identity/trailers and no push. Owner then identified the real mixed-
+old-worker rollout hazard from unconditional V113 dispatch. Re-plan route:
+decomposition, separating handler installation from workflow activation.
+
+New shared process policy defaults to V112 only when unset or explicitly V112;
+V113 requires explicit selection. Empty/unknown values reject outside legacy
+Temporal catch blocks and before existing workflow termination. Normal starts
+and missing-post recovery both use this helper. Existing workflow source is
+unchanged. Capabilities require explicit V113 selection AND the successful
+receipt-table/column probe; inactive or invalid selection gives generic 503
+without querying the schema. No provider worker parity is inferred from this GET.
+
+Node 22.12.0 / PNPM 10.6.1: 60/60 tests, seven suites, and backend/orchestrator/
+test-source typechecks each exit 0. Tests exercise actual service.startWorkflow
+and missing-post activity paths for unset/V112/V113, invalid rejection before
+Temporal calls, inactive capability 503, active schema-success response and
+active schema failures. Historical 46-test result predates this gate.
+
+Release remains open: deploy the same new handler image with V112 first, verify
+all old workers/pods gone and main/provider queues supported, then a second
+rolling activation of that same image with V113. Content activates only after
+that second rollout and schema readiness. Production SQL, actual queue rollout
+and live publication observation remain unperformed here.

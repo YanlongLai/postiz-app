@@ -29,6 +29,44 @@ import { PostActivity } from './post.activity';
 import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 
 describe('receipt activity persistence plumbing', () => {
+  const originalVersion = process.env.POSTIZ_WORKFLOW_VERSION;
+  beforeEach(() => { delete process.env.POSTIZ_WORKFLOW_VERSION; });
+  afterAll(() => {
+    if (originalVersion === undefined) delete process.env.POSTIZ_WORKFLOW_VERSION;
+    else process.env.POSTIZ_WORKFLOW_VERSION = originalVersion;
+  });
+
+  it.each([[undefined, 'postWorkflowV112'], ['V112', 'postWorkflowV112'], ['V113', 'postWorkflowV113']])(
+    'missing-post recovery selects %s -> %s without changing existing workflow policy', async (version, expected) => {
+      if (version !== undefined) process.env.POSTIZ_WORKFLOW_VERSION = version;
+      const signalWithStart = jest.fn().mockResolvedValue(undefined);
+      const activity = new PostActivity(
+        { searchForMissingThreeHoursPosts: async () => [{ id: 'post', organizationId: 'org', integration: { providerIdentifier: 'instagram' } }] } as any,
+        null!, null!, null!, null!, null!,
+        { client: { getRawClient: () => ({ workflow: { signalWithStart } }) } } as any,
+        null!
+      );
+      await activity.searchForMissingThreeHoursPosts();
+      expect(signalWithStart).toHaveBeenCalledWith(expected, expect.objectContaining({ workflowIdConflictPolicy: 'USE_EXISTING', taskQueue: 'main' }));
+    }
+  );
+
+  it('invalid activation rejects missing-post recovery before querying or starting', async () => {
+    process.env.POSTIZ_WORKFLOW_VERSION = 'V114';
+    const searchForMissingThreeHoursPosts = jest.fn();
+    const signalWithStart = jest.fn();
+    const activity = new PostActivity(
+      { searchForMissingThreeHoursPosts } as any,
+      null!, null!, null!, null!, null!,
+      { client: { getRawClient: () => ({ workflow: { signalWithStart } }) } } as any,
+      null!
+    );
+    await expect(activity.searchForMissingThreeHoursPosts())
+      .rejects.toThrow('POSTIZ_WORKFLOW_VERSION must be V112 or V113');
+    expect(searchForMissingThreeHoursPosts).not.toHaveBeenCalled();
+    expect(signalWithStart).not.toHaveBeenCalled();
+  });
+
   it('loads only the owning run and awaits service persistence for every provider checkpoint', async () => {
     const receipt = {
       frameIndex: 0,

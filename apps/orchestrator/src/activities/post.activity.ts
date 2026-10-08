@@ -6,6 +6,7 @@ import {
 } from 'nestjs-temporal-core';
 import { PostsService } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.service';
 import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
+import { selectedPostWorkflow } from '@gitroom/nestjs-libraries/temporal/post.workflow.version';
 import {
   NotificationService,
   NotificationType,
@@ -114,11 +115,12 @@ export class PostActivity {
 
   @ActivityMethod()
   async searchForMissingThreeHoursPosts() {
+    const workflowType = selectedPostWorkflow();
     const list = await this._postService.searchForMissingThreeHoursPosts();
     for (const post of list) {
       await this._temporalService.client
         .getRawClient()
-        .workflow.signalWithStart('postWorkflowV113', {
+        .workflow.signalWithStart(workflowType, {
           workflowId: `post_${post.id}`,
           taskQueue: 'main',
           signal: 'poke',

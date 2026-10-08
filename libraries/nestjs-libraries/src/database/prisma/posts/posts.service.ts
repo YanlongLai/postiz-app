@@ -39,6 +39,7 @@ import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
 dayjs.extend(utc);
 import * as Sentry from '@sentry/nestjs';
 import { TemporalService } from 'nestjs-temporal-core';
+import { selectedPostWorkflow } from '@gitroom/nestjs-libraries/temporal/post.workflow.version';
 import { TypedSearchAttributes } from '@temporalio/common';
 import {
   organizationId,
@@ -81,6 +82,15 @@ export class PostsService {
   ) {}
 
   async getStoryFrameCapabilities(orgId: string): Promise<StoryFrameCapabilitiesDto> {
+    let active = false;
+    try {
+      active = selectedPostWorkflow() === 'postWorkflowV113';
+    } catch {
+      // Invalid activation configuration must not fall back or advertise ready.
+    }
+    if (!active) {
+      throw new ServiceUnavailableException('Story frame receipts workflow is not active');
+    }
     try {
       await this._postRepository.assertStoryFrameReceiptSchemaReady(orgId);
     } catch {
@@ -768,6 +778,9 @@ export class PostsService {
     orgId: string,
     state: State
   ) {
+    // Validate before terminating an existing execution, and outside the legacy
+    // Temporal error catch so invalid activation configuration fails closed.
+    const workflowType = selectedPostWorkflow();
     try {
       const workflows = this._temporalService.client
         .getRawClient()
@@ -797,7 +810,7 @@ export class PostsService {
     try {
       await this._temporalService.client
         .getRawClient()
-        ?.workflow.start('postWorkflowV113', {
+        ?.workflow.start(workflowType, {
           workflowId: `post_${postId}`,
           taskQueue: 'main',
           workflowIdConflictPolicy: 'TERMINATE_EXISTING',

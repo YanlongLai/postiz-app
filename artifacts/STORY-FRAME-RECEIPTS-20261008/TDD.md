@@ -1,5 +1,16 @@
 # Receipt design
 
+## Explicit activation policy
+
+POSTIZ_WORKFLOW_VERSION selects V112 by default (unset or explicit V112).
+Only explicit V113 permits new V113 starts and a successful capability response;
+empty/unknown values reject rather than falling back. Normal starts validate
+before any existing-execution termination. Missing-post recovery applies the same
+policy; deterministic workflow code and existing workflow bytes remain unchanged.
+Capabilities fail 503 before the schema probe when inactive/invalid. Rollout is
+two-phase using one image: first V112 everywhere until every old worker is gone,
+then V113 activation on that same image, then Content activation.
+
 Use existing provider pending/finalize interfaces with additive typed receipt
 data. Persist only confirmed per-frame identifiers through the existing service
 and Prisma repository boundary. New workflow version and activity when required;

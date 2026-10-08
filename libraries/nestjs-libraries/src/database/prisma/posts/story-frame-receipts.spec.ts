@@ -51,7 +51,7 @@ function repository(model: any) {
     null!
   );
 }
-function service(repo: any) {
+function service(repo: any, temporal: any = null) {
   return new PostsService(
     repo,
     null!,
@@ -59,12 +59,52 @@ function service(repo: any) {
     null!,
     null!,
     null!,
-    null!,
+    temporal,
     null!
   );
 }
 
 describe('Story frame receipt repository/service boundary', () => {
+  const originalVersion = process.env.POSTIZ_WORKFLOW_VERSION;
+  beforeEach(() => { delete process.env.POSTIZ_WORKFLOW_VERSION; });
+  afterAll(() => {
+    if (originalVersion === undefined) delete process.env.POSTIZ_WORKFLOW_VERSION;
+    else process.env.POSTIZ_WORKFLOW_VERSION = originalVersion;
+  });
+
+  it.each([undefined, 'V112', '', 'invalid'])(
+    'capability is 503 before explicit activation (%s), even with a ready schema',
+    async (version) => {
+      if (version !== undefined) process.env.POSTIZ_WORKFLOW_VERSION = version;
+      const probe = jest.fn().mockResolvedValue(undefined);
+      await expect(service({ assertStoryFrameReceiptSchemaReady: probe })
+        .getStoryFrameCapabilities('org')).rejects.toMatchObject({ status: 503 });
+      expect(probe).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([[undefined, 'postWorkflowV112'], ['V112', 'postWorkflowV112'], ['V113', 'postWorkflowV113']])(
+    'actual startWorkflow selects %s -> %s', async (version, expected) => {
+      if (version !== undefined) process.env.POSTIZ_WORKFLOW_VERSION = version;
+      const start = jest.fn().mockResolvedValue(undefined);
+      const list = jest.fn().mockReturnValue([]);
+      await service({}, { client: { getRawClient: () => ({ workflow: { list, start } }) } })
+        .startWorkflow('instagram', 'post', 'org', 'QUEUE');
+      expect(start).toHaveBeenCalledWith(expected, expect.objectContaining({ taskQueue: 'main' }));
+    }
+  );
+
+  it.each(['', 'V114', 'v113'])(
+    'invalid %s refuses start before touching existing executions', async (version) => {
+      process.env.POSTIZ_WORKFLOW_VERSION = version;
+      const getRawClient = jest.fn();
+      await expect(service({}, { client: { getRawClient } })
+        .startWorkflow('instagram', 'post', 'org', 'QUEUE'))
+        .rejects.toThrow('POSTIZ_WORKFLOW_VERSION must be V112 or V113');
+      expect(getRawClient).not.toHaveBeenCalled();
+    }
+  );
+
   it('capability probe directly reads all receipt columns even on an empty database', async () => {
     const findFirst = jest.fn().mockResolvedValue(null);
     await repository({
@@ -84,6 +124,7 @@ describe('Story frame receipt repository/service boundary', () => {
   });
 
   it('capability returns only static approved fields after successful schema probe', async () => {
+    process.env.POSTIZ_WORKFLOW_VERSION = 'V113';
     const probe = jest.fn().mockResolvedValue(undefined);
     expect(
       await service({
@@ -100,6 +141,7 @@ describe('Story frame receipt repository/service boundary', () => {
   it.each(['P2021', 'P2022', 'P1001'])(
     'capability fails closed without DB details on %s',
     async (code) => {
+      process.env.POSTIZ_WORKFLOW_VERSION = 'V113';
       const probe = jest
         .fn()
         .mockRejectedValue({ code, message: 'private DB detail' });

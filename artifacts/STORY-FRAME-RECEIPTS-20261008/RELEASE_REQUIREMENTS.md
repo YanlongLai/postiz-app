@@ -5,7 +5,7 @@
    implementation commit, excluding unfinished packaging. Canonical promotion,
    push, merge, deployment and publication remain separate gates.
 2. Local supported-runtime gate is COMPLETE: Node 22.12.0 + PNPM 10.6.1 passed
-   46 tests, three typechecks and Prisma validation/generation/offline diff.
+   60 tests after the activation gate, three typechecks and Prisma validation/generation/offline diff.
    Preserve the supported Node 22 range and validate the actual release artifact;
    the historical Node 26 warning is superseded by EVIDENCE.md.
 3. Regenerate Prisma 6.5 client in the release image. Apply the additive schema
@@ -20,8 +20,17 @@
    and approved application. Never blindly invoke prisma-db-push with its
    existing --accept-data-loss flag. This worktree does not contain a historical
    migrations directory; do not assume migrate deploy will apply this artifact.
-4. Stage the new activity methods on all affected task queues before API/new
-   scheduling and missing-post dispatch select V113. An old main worker can
+4. Two-phase rollout: install the same new image everywhere with
+   POSTIZ_WORKFLOW_VERSION=V112 (also the default when unset). New scheduling
+   and missing-post recovery must still select V112, and capabilities return
+   503 regardless of schema readiness. Retain legacy methods/workflow exports.
+   Confirm every old-image pod/worker is gone and every affected main/provider
+   queue uses the new handlers. Only then perform a second pod rollout of the
+   SAME image with POSTIZ_WORKFLOW_VERSION=V113 in both backend and orchestrator.
+   The second rolling transition may mix V112/V113 activation settings, but
+   every worker now supports both versions. Invalid/empty values fail closed;
+   do not enable Content until V113 activation and the DB schema probe succeed.
+   An old main worker can
    receive an unknown V113 start; an old provider worker can receive an unknown
    new activity. Use the existing coordinated versioned worker rollout, not an
    uncoordinated mixed-worker deployment. Retain V112 and all older exports and
@@ -53,8 +62,9 @@ GET /public/v1/integrations/story-frame-capabilities with exact contractVersion
 story-frame-receipts-v1, maxFrames=3 and perFrameReceipts=true. Missing route,
 503/schema failure or mismatched fields must reject activation without legacy
 fallback. This endpoint reads all receipt columns through Prisma before reporting
-ready; it does not prove provider workers are updated. Stage workers first, then
-enable the new backend/capability route, and only then activate three-frame Content.
+ready; it additionally requires explicit V113 selection, but does not prove
+provider workers are updated. Follow the two-phase same-image rollout above,
+then activate three-frame Content only after that rollout completes.
 Owner subsequently confirmed the focused Avicenna capability review found no
 blocker. Canonical promotion and actual worker/schema parity remain required.
 
