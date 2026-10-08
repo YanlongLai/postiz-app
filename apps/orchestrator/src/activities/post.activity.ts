@@ -5,6 +5,7 @@ import {
   TemporalService,
 } from 'nestjs-temporal-core';
 import { PostsService } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.service';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import {
   NotificationService,
   NotificationType,
@@ -117,7 +118,7 @@ export class PostActivity {
     for (const post of list) {
       await this._temporalService.client
         .getRawClient()
-        .workflow.signalWithStart('postWorkflowV112', {
+        .workflow.signalWithStart('postWorkflowV113', {
           workflowId: `post_${post.id}`,
           taskQueue: 'main',
           signal: 'poke',
@@ -435,6 +436,80 @@ export class PostActivity {
         getIntegration.finalizePost(integration.token, pendingData, integration)
       )
     );
+  }
+
+  private async storyFrameReceiptContext(
+    integration: Integration,
+    postId: string,
+    publicationId: string
+  ): Promise<StoryFrameReceiptContext> {
+    const { receipts } = await this._postService.getStoryFrameReceipts(
+      integration.organizationId,
+      postId,
+      publicationId
+    );
+    return {
+      receipts,
+      record: (receipt) =>
+        this._postService.recordStoryFrameReceipt(
+          integration.organizationId,
+          postId,
+          publicationId,
+          receipt
+        ),
+    };
+  }
+
+  @ActivityMethod()
+  async checkPostStatusWithReceipts(
+    integration: Integration,
+    pendingData: any,
+    postId: string,
+    publicationId: string
+  ) {
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    const context = await this.storyFrameReceiptContext(
+      integration,
+      postId,
+      publicationId
+    );
+    return this.handleDisconnect(integration, () =>
+      provider.checkPostStatusWithReceipts(
+        integration.token,
+        pendingData,
+        integration,
+        context
+      )
+    );
+  }
+
+  @ActivityMethod()
+  async finalizePostWithReceipts(
+    integration: Integration,
+    pendingData: any,
+    postId: string,
+    publicationId: string
+  ) {
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    return withHeartbeat(async () => {
+      const context = await this.storyFrameReceiptContext(
+        integration,
+        postId,
+        publicationId
+      );
+      return this.handleDisconnect(integration, () =>
+        provider.finalizePostWithReceipts(
+          integration.token,
+          pendingData,
+          integration,
+          context
+        )
+      );
+    });
   }
 
   @ActivityMethod()

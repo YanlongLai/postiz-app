@@ -1,0 +1,16 @@
+{
+  "extends": "../../apps/orchestrator/tsconfig.build.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "types": ["node", "jest"]
+  },
+  "include": [
+    "../../apps/orchestrator/src/activities/story-frame-receipts.spec.ts",
+    "../../apps/orchestrator/src/workflows/post-workflows/story-frame-receipts.spec.ts",
+    "../../apps/backend/src/public-api/routes/v1/story-frame-receipts.spec.ts",
+    "../../libraries/nestjs-libraries/src/database/prisma/posts/story-frame-receipts.spec.ts",
+    "../../libraries/nestjs-libraries/src/integrations/social/story-frame-receipts.spec.ts"
+  ],
+  "exclude": ["../../node_modules"]
+}

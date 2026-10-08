@@ -14,6 +14,7 @@ import { InstagramDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-set
 import { InstagramProvider } from '@gitroom/nestjs-libraries/integrations/social/instagram.provider';
 import { META_GRAPH_API_VERSION } from '@gitroom/nestjs-libraries/integrations/social/facebook.provider';
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
 const instagramProvider = new InstagramProvider();
@@ -226,6 +227,34 @@ export class InstagramStandaloneProvider
     integration: Integration
   ) {
     return instagramProvider.finalizePost(accessToken, pendingData, integration);
+  }
+
+  override async checkPostStatusWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ) {
+    return instagramProvider.checkPostStatusWithReceipts(
+      accessToken,
+      pendingData,
+      integration,
+      context
+    );
+  }
+
+  override async finalizePostWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ) {
+    return instagramProvider.finalizePostWithReceipts(
+      accessToken,
+      pendingData,
+      integration,
+      context
+    );
   }
 
   async comment(

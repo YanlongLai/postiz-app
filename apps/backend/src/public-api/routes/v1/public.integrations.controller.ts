@@ -66,6 +66,10 @@ import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/us
 import { SuperAdminGuard } from '@gitroom/backend/services/auth/super.admin.guard';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import {
+  StoryFrameCapabilitiesDto,
+  StoryFrameReceiptsDto,
+} from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 
 @ApiTags('Public API')
 @Controller('/public/v1')
@@ -173,6 +177,23 @@ export class PublicIntegrationsController {
   ) {
     Sentry.metrics.count('public_api-request', 1);
     return { date: await this._postsService.findFreeDateTime(org.id, id) };
+  }
+
+  @Get('/integrations/story-frame-capabilities')
+  async getStoryFrameCapabilities(
+    @GetOrgFromRequest() org: Organization
+  ): Promise<StoryFrameCapabilitiesDto> {
+    return this._postsService.getStoryFrameCapabilities(org.id);
+  }
+
+  // PublicAuthMiddleware supplies the authenticated organization, never a
+  // client-provided organization ID. No provider pending state is exposed.
+  @Get('/posts/:id/story-frame-receipts')
+  async getStoryFrameReceipts(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ): Promise<StoryFrameReceiptsDto> {
+    return this._postsService.getStoryFrameReceipts(org.id, id);
   }
 
   @Get('/posts')

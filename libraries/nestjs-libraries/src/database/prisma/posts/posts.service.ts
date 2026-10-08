@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   ValidationPipe,
 } from '@nestjs/common';
 import { PostsRepository } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.repository';
@@ -54,6 +55,11 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { weightedLength } from '@gitroom/helpers/utils/count.length';
+import {
+  ConfirmedStoryFrameReceipt,
+  StoryFrameCapabilitiesDto,
+  StoryFrameReceiptsDto,
+} from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 
 type PostWithConditionals = Post & {
   integration?: Integration;
@@ -73,6 +79,70 @@ export class PostsService {
     private _temporalService: TemporalService,
     private _refreshIntegrationService: RefreshIntegrationService
   ) {}
+
+  async getStoryFrameCapabilities(orgId: string): Promise<StoryFrameCapabilitiesDto> {
+    try {
+      await this._postRepository.assertStoryFrameReceiptSchemaReady(orgId);
+    } catch {
+      // Schema missing, partially migrated, or DB unavailable: never advertise
+      // readiness and never return provider/DB error details to the caller.
+      throw new ServiceUnavailableException('Story frame receipts schema is not ready');
+    }
+    return {
+      contractVersion: 'story-frame-receipts-v1',
+      maxFrames: 3,
+      perFrameReceipts: true,
+    };
+  }
+
+  async getStoryFrameReceipts(
+    orgId: string,
+    postId: string,
+    publicationId?: string
+  ): Promise<StoryFrameReceiptsDto> {
+    const post = await this._postRepository.getStoryFrameReceipts(
+      orgId,
+      postId,
+      publicationId
+    );
+    if (!post) throw new NotFoundException();
+    return {
+      postId: post.id,
+      receipts: post.storyFrameReceipts.map((receipt) => ({
+        postId: receipt.postId,
+        frameIndex: receipt.frameIndex,
+        platformId: receipt.platformId,
+        confirmedAt: receipt.confirmedAt.toISOString(),
+        status: receipt.status,
+      })),
+    };
+  }
+
+  recordStoryFrameReceipt(
+    orgId: string,
+    postId: string,
+    publicationId: string,
+    receipt: ConfirmedStoryFrameReceipt
+  ) {
+    if (
+      !publicationId ||
+      !Number.isInteger(receipt.frameIndex) ||
+      receipt.frameIndex < 0 ||
+      typeof receipt.platformId !== 'string' ||
+      !receipt.platformId.trim() ||
+      receipt.platformId.length > 512 ||
+      receipt.status !== 'confirmed' ||
+      !Number.isFinite(Date.parse(receipt.confirmedAt))
+    ) {
+      throw new BadRequestException('Invalid confirmed Story frame receipt');
+    }
+    return this._postRepository.recordStoryFrameReceipt(
+      orgId,
+      postId,
+      publicationId,
+      receipt
+    );
+  }
 
   searchForMissingThreeHoursPosts() {
     return this._postRepository.searchForMissingThreeHoursPosts();
@@ -727,7 +797,7 @@ export class PostsService {
     try {
       await this._temporalService.client
         .getRawClient()
-        ?.workflow.start('postWorkflowV112', {
+        ?.workflow.start('postWorkflowV113', {
           workflowId: `post_${postId}`,
           taskQueue: 'main',
           workflowIdConflictPolicy: 'TERMINATE_EXISTING',
