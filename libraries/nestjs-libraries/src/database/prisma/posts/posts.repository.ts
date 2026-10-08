@@ -16,6 +16,15 @@ import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import utc from 'dayjs/plugin/utc';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateTagDto } from '@gitroom/nestjs-libraries/dtos/posts/create.tag.dto';
+import { ConfirmedStoryFrameReceipt } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
+
+const storyFrameReceiptSelect = {
+  postId: true,
+  frameIndex: true,
+  platformId: true,
+  confirmedAt: true,
+  status: true,
+} as const;
 
 dayjs.extend(isoWeek);
 dayjs.extend(weekOfYear);
@@ -25,13 +34,89 @@ dayjs.extend(utc);
 @Injectable()
 export class PostsRepository {
   constructor(
-    private _post: PrismaRepository<'post'>,
+    private _post: PrismaRepository<'post' | 'storyFrameReceipt'>,
     private _popularPosts: PrismaRepository<'popularPosts'>,
     private _comments: PrismaRepository<'comments'>,
     private _tags: PrismaRepository<'tags'>,
     private _tagsPosts: PrismaRepository<'tagsPosts'>,
     private _errors: PrismaRepository<'errors'>
   ) {}
+
+  async assertStoryFrameReceiptSchemaReady(orgId: string): Promise<void> {
+    // Query the receipt model itself: a nested Post relation can skip the child
+    // query when no posts exist, incorrectly reporting an unmigrated DB ready.
+    // Select every contract column so a partial schema also fails closed.
+    await this._post.model.storyFrameReceipt.findFirst({
+      where: { post: { organizationId: orgId, deletedAt: null } },
+      select: {
+        postId: true,
+        publicationId: true,
+        frameIndex: true,
+        platformId: true,
+        confirmedAt: true,
+        status: true,
+      },
+    });
+  }
+
+  getStoryFrameReceipts(orgId: string, postId: string, publicationId?: string) {
+    return this._post.model.post.findFirst({
+      where: { id: postId, organizationId: orgId, deletedAt: null },
+      select: {
+        id: true,
+        storyFrameReceipts: {
+          where: publicationId ? { publicationId } : {},
+          orderBy: [{ confirmedAt: 'asc' }, { frameIndex: 'asc' }],
+          select: storyFrameReceiptSelect,
+        },
+      },
+    });
+  }
+
+  async recordStoryFrameReceipt(
+    orgId: string,
+    postId: string,
+    publicationId: string,
+    receipt: ConfirmedStoryFrameReceipt
+  ) {
+    // Nested upsert scopes the write to the owning post. An existing receipt
+    // is immutable: repeated persistence must not replace its ID or timestamp.
+    const post = await this._post.model.post.update({
+      where: { id: postId, organizationId: orgId, deletedAt: null },
+      data: {
+        storyFrameReceipts: {
+          upsert: {
+            where: {
+              postId_publicationId_frameIndex: {
+                postId,
+                publicationId,
+                frameIndex: receipt.frameIndex,
+              },
+            },
+            create: {
+              publicationId,
+              frameIndex: receipt.frameIndex,
+              platformId: receipt.platformId,
+              confirmedAt: new Date(receipt.confirmedAt),
+              status: 'confirmed',
+            },
+            update: {},
+          },
+        },
+      },
+      select: {
+        storyFrameReceipts: {
+          where: { publicationId, frameIndex: receipt.frameIndex },
+          select: storyFrameReceiptSelect,
+        },
+      },
+    });
+    if (post.storyFrameReceipts[0]?.platformId !== receipt.platformId) {
+      throw new Error(
+        'Conflicting confirmed Story frame receipt; publication held'
+      );
+    }
+  }
 
   searchForMissingThreeHoursPosts() {
     return this._post.model.post.findMany({

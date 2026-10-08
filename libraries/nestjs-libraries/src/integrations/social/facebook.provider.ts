@@ -19,6 +19,7 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/facebook.dto';
 import { DribbbleDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/dribbble.dto';
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
@@ -636,6 +637,65 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     },
     integration: Integration
   ): Promise<PendingCheckResponse> {
+    return this.finalizeStoryPost(accessToken, pendingData, integration);
+  }
+
+  override async checkPostStatusWithReceipts(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    let state = pendingData;
+    // A persisted confirmation closes the crash window after receipt commit
+    // but before the activity result reached Temporal. Never republish it.
+    while (state.publishedCount < state.items.length) {
+      const receipt = context.receipts.find(
+        (r) => r.frameIndex === state.publishedCount
+      );
+      if (!receipt) break;
+      state = {
+        ...state,
+        publishedCount: state.publishedCount + 1,
+        lastPostId: receipt.platformId,
+        attempting: null,
+        confirmed: false,
+      };
+    }
+    if (state.publishedCount === state.items.length) {
+      return {
+        status: 'completed',
+        postId: state.lastPostId,
+        releaseURL: await this.resolveFacebookStoryUrl(
+          state.lastPostId,
+          accessToken,
+          integration
+        ),
+      };
+    }
+    return this.checkPostStatus(accessToken, state, integration);
+  }
+
+  override async finalizePostWithReceipts(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    return this.finalizeStoryPost(
+      accessToken,
+      pendingData,
+      integration,
+      context
+    );
+  }
+
+  private async finalizeStoryPost(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context?: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
     // Publish exactly one story per call, with an arm -> confirm -> publish
     // handshake: the publish only runs after checkPostStatus witnessed the
     // intent, so a run that dies mid-publish is detectable and the item is
@@ -666,6 +726,27 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           : 'publish photo story'
       )
     ).json();
+
+    if (context) {
+      if (
+        typeof storyPostId !== 'string' ||
+        !storyPostId.trim() ||
+        storyPostId === item.mediaId
+      ) {
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'Story publish outcome unknown; no confirmed platform ID; check the page before retrying'
+        );
+      }
+      await context.record({
+        frameIndex: pendingData.publishedCount,
+        platformId: storyPostId,
+        confirmedAt: new Date().toISOString(),
+        status: 'confirmed',
+      });
+    }
 
     const publishedCount = pendingData.publishedCount + 1;
 

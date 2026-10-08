@@ -16,6 +16,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { InstagramDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/instagram.dto';
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { META_GRAPH_API_VERSION } from '@gitroom/nestjs-libraries/integrations/social/facebook.provider';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
@@ -746,6 +747,7 @@ export class InstagramProvider
         status: 'pending',
         pendingData: {
           type,
+          ...(isStory ? { isStory: true } : {}),
           postType:
             isStory && medias.length > 1
               ? 'stories'
@@ -823,6 +825,123 @@ export class InstagramProvider
     }
 
     return { status: 'ready', pendingData };
+  }
+
+  override async checkPostStatusWithReceipts(
+    token: string,
+    pendingData: Parameters<InstagramProvider['finalizePost']>[1] & {
+      isStory?: boolean;
+    },
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    if (pendingData.postType !== 'stories' && !pendingData.isStory) {
+      return this.checkPostStatus(token, pendingData, integration);
+    }
+    const [accessToken, userToken] = token.split('___');
+    for (
+      let frameIndex = 0;
+      frameIndex < pendingData.containers.length;
+      frameIndex++
+    ) {
+      if (context.receipts.some((r) => r.frameIndex === frameIndex)) continue;
+      const status = await this.igContainerStatus(
+        pendingData.containers[frameIndex],
+        userToken || accessToken,
+        pendingData.type
+      );
+      if (status === 'IN_PROGRESS') return { status: 'pending', pendingData };
+      if (status === 'PUBLISHED') {
+        // The current Graph contract provides no verified container-to-media
+        // ID lookup. A container is NOT a confirmed publication identifier.
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'Instagram Story is already published but its confirmed media ID is unavailable; publication held for reconciliation'
+        );
+      }
+    }
+    return { status: 'ready', pendingData };
+  }
+
+  override async finalizePostWithReceipts(
+    token: string,
+    pendingData: Parameters<InstagramProvider['finalizePost']>[1] & {
+      isStory?: boolean;
+    },
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    if (pendingData.postType !== 'stories' && !pendingData.isStory) {
+      return this.finalizePost(token, pendingData, integration);
+    }
+    const [accessToken, userToken] = token.split('___');
+    const checkToken = userToken || accessToken;
+    let lastMediaId = '';
+    for (
+      let frameIndex = 0;
+      frameIndex < pendingData.containers.length;
+      frameIndex++
+    ) {
+      const existing = context.receipts.find(
+        (r) => r.frameIndex === frameIndex
+      );
+      if (existing) {
+        lastMediaId = existing.platformId;
+        continue;
+      }
+      const creationId = pendingData.containers[frameIndex];
+      const status = await this.igContainerStatus(
+        creationId,
+        checkToken,
+        pendingData.type
+      );
+      if (status === 'PUBLISHED') {
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'Instagram Story is already published but its confirmed media ID is unavailable; publication held for reconciliation'
+        );
+      }
+      if (status !== 'FINISHED') return { status: 'pending', pendingData };
+      const { id: mediaId } = await (
+        await this.fetch(
+          `https://${pendingData.type}/${META_GRAPH_API_VERSION}/${integration.internalId}/media_publish?creation_id=${creationId}&access_token=${accessToken}&field=id`,
+          { method: 'POST' }
+        )
+      ).json();
+      if (
+        typeof mediaId !== 'string' ||
+        !mediaId.trim() ||
+        mediaId === creationId
+      ) {
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'Story publish outcome unknown; no confirmed media ID; publication held for reconciliation'
+        );
+      }
+      await context.record({
+        frameIndex,
+        platformId: mediaId,
+        confirmedAt: new Date().toISOString(),
+        status: 'confirmed',
+      });
+      lastMediaId = mediaId;
+    }
+    return {
+      status: 'completed',
+      postId: lastMediaId,
+      releaseURL: await this.igPermalink(
+        lastMediaId,
+        checkToken,
+        pendingData.type,
+        integration
+      ),
+    };
   }
 
   override async finalizePost(

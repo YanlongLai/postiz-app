@@ -1,5 +1,6 @@
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import {
   AuthTokenDetails,
   PendingCheckResponse,
@@ -203,6 +204,25 @@ export abstract class SocialAbstract {
       '{}',
       'finalizePost is not implemented for this provider'
     );
+  }
+
+  // New workflow versions opt in. Other providers retain their existing path.
+  public async checkPostStatusWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    return this.checkPostStatus(accessToken, pendingData, integration);
+  }
+
+  public async finalizePostWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    return this.finalizePost(accessToken, pendingData, integration);
   }
 
   // axios flavor of the SSRF-safe dispatcher that `this.fetch` applies - for

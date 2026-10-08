@@ -1,4 +1,5 @@
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 
 export interface ClientInformation {
   client_id: string;
@@ -187,6 +188,18 @@ export interface SocialProvider
     accessToken: string,
     pendingData: any,
     integration: Integration
+  ): Promise<PendingCheckResponse>;
+  checkPostStatusWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse>;
+  finalizePostWithReceipts(
+    accessToken: string,
+    pendingData: any,
+    integration: Integration,
+    context: StoryFrameReceiptContext
   ): Promise<PendingCheckResponse>;
   isWeb3?: boolean;
   isChromeExtension?: boolean;

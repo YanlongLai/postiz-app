@@ -432,7 +432,6 @@ model Post {
   submittedForOrder          Orders?                   @relation(fields: [submittedForOrderId], references: [id])
   submittedForOrganization   Organization?             @relation("submittedForOrg", fields: [submittedForOrganizationId], references: [id])
   tags                       TagsPosts[]
-  storyFrameReceipts          StoryFrameReceipt[]
 
   @@index([group])
   @@index([deletedAt])
@@ -449,23 +448,6 @@ model Post {
   @@index([updatedAt])
   @@index([releaseURL])
   @@index([integrationId])
-}
-
-enum StoryFrameReceiptStatus {
-  confirmed
-}
-
-model StoryFrameReceipt {
-  postId        String
-  // Internal workflow run identity prevents repeat posts reusing old receipts.
-  publicationId String
-  frameIndex    Int
-  platformId    String
-  confirmedAt   DateTime
-  status        StoryFrameReceiptStatus @default(confirmed)
-  post          Post @relation(fields: [postId], references: [id], onDelete: Cascade)
-
-  @@id([postId, publicationId, frameIndex])
 }
 
 model Notifications {
