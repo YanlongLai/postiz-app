@@ -27,5 +27,6 @@ module.exports = {
     '**/story-frame-receipts.spec.ts',
     '**/facebook.provider.spec.ts',
     '**/facebook-story-url.spec.ts',
+    '**/initialize.sentry.spec.ts',
   ],
 };

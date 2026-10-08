@@ -22,6 +22,12 @@ const workflows = require('/app/apps/orchestrator/dist/apps/orchestrator/src/wor
 assert.equal(typeof workflows.postWorkflowV113, 'function');
 assert.equal(typeof workflows.postWorkflowV112, 'function');
 for (const app of ['backend', 'orchestrator']) {
+  delete process.env.NEXT_PUBLIC_SENTRY_DSN;
+  const { initializeSentry } = require(`/app/apps/${app}/dist/libraries/nestjs-libraries/src/sentry/initialize.sentry.js`);
+  assert.equal(initializeSentry(app, true), null);
+  assert(!Object.keys(require.cache).some((path) =>
+    /[\\/]@sentry[\\/]profiling-node[\\/]|[\\/]@sentry-internal[\\/]node-cpu-profiler[\\/]/.test(path)),
+    'disabled telemetry loaded the native profiler');
   const { selectedPostWorkflow } = require(`/app/apps/${app}/dist/libraries/nestjs-libraries/src/temporal/post.workflow.version.js`);
   delete process.env.POSTIZ_WORKFLOW_VERSION;
   assert.equal(selectedPostWorkflow(), 'postWorkflowV112');
