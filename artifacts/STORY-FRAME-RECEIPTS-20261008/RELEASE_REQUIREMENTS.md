@@ -1,5 +1,19 @@
 # Not deployed: production prerequisites
 
+## Locally verified packaging
+
+Dockerfile.story-frame-receipts builds only backend/orchestrator and target Linux
+Prisma on the exact pinned Node 22.20 base, preserving frontend/nginx hashes.
+Its explicit entrypoint never executes database synchronization. Workflow
+activation defaults to V112. Canonical SQL is read-only at
+/app/var/docker/story-frame-receipts/migration.sql with SHA256
+91ad195e56fbaf0e964c732f5aaccaa1f1bd9b04b5d566b1d2f396ee700a61ee.
+The explicit apply-schema.cjs operator step is independently controlled; actual
+Prisma/PG17 checks now pass absence/apply/check/idempotency, data preservation and
+partial-schema hold. It checks the original digest before narrowly stripping
+full-line comments from the known three-statement migration. Startup never calls
+it. See IMAGE_PACKAGING.md; production application remains separate and gated.
+
 1. Owner reports independent Avicenna review found no additional actionable bug,
    including the later capability additions. Owner authorized a focused local
    implementation commit, excluding unfinished packaging. Canonical promotion,

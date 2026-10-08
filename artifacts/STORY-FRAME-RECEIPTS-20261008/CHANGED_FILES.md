@@ -1,7 +1,21 @@
 # Exact implementation inventory
 
 All paths are relative to the owned postiz-story-frame-receipts-20261008 worktree.
-Baseline remains b701236ab1ea969d52c22173c2db0667f0db587f; no commit created.
+Fork baseline is b701236ab1ea969d52c22173c2db0667f0db587f.
+Focused implementation commit: f58bddb03d40c3f92eb1544ffb46b13ff991e737.
+Activation follow-up: 71c3dcb72af1e3f3789fa537f53d61aa9fb62222.
+No push or deployment performed here.
+
+## Packaging and activation additions
+
+- Dockerfile.story-frame-receipts
+- var/docker/story-frame-receipts/start.sh
+- var/docker/story-frame-receipts/ecosystem.config.cjs
+- var/docker/story-frame-receipts/verify-image.cjs
+- var/docker/story-frame-receipts/apply-schema.cjs (Main-authored; tested here)
+- libraries/nestjs-libraries/src/temporal/post.workflow.version.ts
+- artifacts/STORY-FRAME-RECEIPTS-20261008/IMAGE_PACKAGING.md
+- artifacts/STORY-FRAME-RECEIPTS-20261008/schema-operator-check.cjs
 
 ## Modified source
 

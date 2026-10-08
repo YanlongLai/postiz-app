@@ -311,3 +311,27 @@ all old workers/pods gone and main/provider queues supported, then a second
 rolling activation of that same image with V113. Content activates only after
 that second rollout and schema readiness. Production SQL, actual queue rollout
 and live publication observation remain unperformed here.
+
+## Minimal image packaging and real operator validation
+
+See IMAGE_PACKAGING.md for the complete hypothesis, failed experiments,
+Main-owned helper repairs and final regression evidence. The exact production
+amd64 base was pulled and inspected locally. Node 22.20.0, PNPM 10.6.1,
+Prisma 6.5.0 and all dependency manifests match. Minimal backend/orchestrator
+compilation and Linux-generated Prisma client passed without frontend rebuilding
+or database access. Actual compiled Temporal workflow bundling passed offline.
+
+Final real PostgreSQL 17.10 integration through the repaired operator helper
+passes absence/apply/check/idempotent/partial-held/data-preservation cases under
+native supported Node 22.12.0 and Prisma 6.5.0. Canonical semicolon-comment SQL
+fixture and original migration hash are explicitly regression-tested. Both
+historical helper failures (void decoding and naive comment splitting) are
+superseded by this successful fresh-database run. Main-owned helper was inspected
+and tested, not edited by this task.
+
+The final local image includes read-only canonical migration.sql at the controlled
+operator path, verifies its digest and helper export, defaults workflow activation
+to V112, and replaces the unsafe inherited entrypoint/CMD. Full frontend and
+nginx hashes are unchanged. The disposable PostgreSQL container was removed
+after validation. Owner authorized a focused local packaging commit after these
+checks; no registry push, live-schema operation, deployment or publication.
