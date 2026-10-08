@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/nestjs';
-import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { capitalize } from 'lodash';
 
 export const setSentryUserContext = (params: {
@@ -31,6 +30,10 @@ export const initializeSentry = (appName: string, allowLogs = false) => {
   }
 
   try {
+    // Profiling loads a native addon. Disabled telemetry must not initialize it
+    // during API/worker startup merely because this shared helper is imported.
+    const { nodeProfilingIntegration } = require('@sentry/profiling-node') as
+      typeof import('@sentry/profiling-node');
     Sentry.init({
       initialScope: {
         tags: {

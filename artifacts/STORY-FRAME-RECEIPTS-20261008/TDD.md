@@ -1,5 +1,18 @@
 # Receipt design
 
+## Startup remediation hypothesis — optional native telemetry
+
+The third official release verified the additive schema but the new V112
+orchestrator did not become ready. A blocked process had loaded the native
+Sentry CPU profiler even though its DSN was unset. Independent bounded imports
+and native Temporal connection probes succeeded, so a deterministic profiler
+deadlock is not established. Defer this optional native module until the existing
+DSN guard permits telemetry, inside its existing error boundary. Preserve enabled
+telemetry settings and every workflow byte. Unit tests must reject native loading
+when disabled and preserve configured/error behavior. The exact target image
+must verify this in both compiled service trees. Production readiness and queue
+poller checks remain mandatory; passing imports cannot substitute for them.
+
 ## Explicit activation policy
 
 POSTIZ_WORKFLOW_VERSION selects V112 by default (unset or explicit V112).

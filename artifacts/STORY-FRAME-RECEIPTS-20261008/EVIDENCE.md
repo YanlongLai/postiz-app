@@ -1,5 +1,41 @@
 # Receipt implementation checkpoint
 
+## V112 rollout startup investigation — 2026-10-08
+
+Official batch `reader-first-warp-output-parity-20261008` verified the additive
+schema but timed out at the new V112 rollout. Old Postiz remained ready; V113
+and Content were not activated. Failure notification SMTP fingerprint
+`c8f688d0e8662a68` and exact-holder Lease release were observed.
+
+Frontend 5000 and backend startup do not prove orchestrator 3002 readiness.
+The actual nested orchestrator process was sleeping with no completed startup
+log. Its native mappings included Sentry CPU profiler but not Temporal/Prisma;
+DSN was unset. Isolated exact pre-bootstrap imports, Express adapter construction,
+and a live read-only native Temporal connect/close all passed. Exact offline main
+startup progressed through Nest and failed only at the expected disconnected
+synthetic database. None of these probes launched additional production workers.
+An attempted stack-only inspector observation was unavailable; a later bounded
+check verified its local port was not open. No debug endpoint was published.
+
+Re-plan route: hypothesis, same release boundary. Eliminate eager native profiler
+loading for disabled telemetry; preserve enabled integration settings and caught
+load errors. Tests/image verification now cover the disabled boundary in both
+compiled service trees. This is not yet evidence that the live hang is fixed;
+the rebuilt digest must pass staged readiness and required Temporal pollers.
+
+Supported Node 22.12.0 / PNPM 10.6.1: eight Jest suites, 64 tests passed;
+additional tests, backend and orchestrator typechecks all exited zero.
+Independent review found no blockers. Linux/amd64 Node 22.20.0 rebuilt offline;
+the new target-image verifier passed both compiled helpers. A negative control
+ran this verifier against the previous image and correctly failed with
+`disabled telemetry loaded the native profiler`. These prove the native-loading
+boundary changed, not that production readiness has recovered. Workflow bytes,
+dependency lockfiles, schema digest and frontend were not changed.
+The exact default all-role entrypoint was also exercised in a task-owned,
+network-disabled container: both backend and orchestrator reached Nest startup;
+synthetic missing DB/configuration errors are expected and are not described as
+service readiness. That disposable container was stopped and auto-removed.
+
 Owner approval recorded in this task. Initial inspection confirms only the last
 platform ID is surfaced. Do not call six-frame publication verified from two root
 scheduling receipts. No external social mutation in this work item.

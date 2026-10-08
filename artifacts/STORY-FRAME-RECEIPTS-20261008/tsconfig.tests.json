@@ -6,6 +6,7 @@
     "types": ["node", "jest"]
   },
   "include": [
+    "../../libraries/nestjs-libraries/src/sentry/initialize.sentry.spec.ts",
     "../../apps/orchestrator/src/activities/story-frame-receipts.spec.ts",
     "../../apps/orchestrator/src/workflows/post-workflows/story-frame-receipts.spec.ts",
     "../../apps/backend/src/public-api/routes/v1/story-frame-receipts.spec.ts",
