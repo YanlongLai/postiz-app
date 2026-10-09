@@ -72,6 +72,7 @@ if (require.main === module) {
     const { PrismaClient } = require('@prisma/client');
     const db = new PrismaClient();
     applyReceiptSchema(db, { apply: args[0] === '--apply' })
+      .then(async receipt => ({ receipt, upgrade: await require('./apply-upgrade.cjs').applyUpgrade(db, { apply: args[0] === '--apply' }) }))
       .then(result => console.log(JSON.stringify(result)))
       .catch(error => {
         // Never print connection strings, raw Prisma diagnostics or row data.

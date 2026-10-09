@@ -53,10 +53,16 @@ describe('optional native Sentry profiler startup', () => {
         tags: { service: 'orchestrator', component: 'nestjs' },
       }),
       integrations: [{ name: 'Profiling' }, { name: 'Console' }, { name: 'OpenAI' }],
-      tracesSampleRate: 1,
-      profileSessionSampleRate: 0.3,
+      tracesSampler: expect.any(Function),
+      profileSessionSampleRate: 0.2,
       profileLifecycle: 'trace',
     }));
+    const sampler = init.mock.calls[0][0].tracesSampler;
+    const inheritOrSampleWith = jest.fn((rate) => rate);
+    expect(sampler({ normalizedRequest: { method: 'GET', url: '/mcp' }, inheritOrSampleWith })).toBe(0);
+    expect(inheritOrSampleWith).not.toHaveBeenCalled();
+    expect(sampler({ normalizedRequest: { method: 'GET', url: '/public/v1/analytics/test' }, inheritOrSampleWith })).toBe(0.01);
+    expect(sampler({ name: 'ordinary-request', inheritOrSampleWith })).toBe(0.1);
   });
 
   it('keeps a native-module load exception inside the existing telemetry error boundary', () => {
