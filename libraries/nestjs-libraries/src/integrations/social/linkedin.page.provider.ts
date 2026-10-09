@@ -5,7 +5,7 @@ import {
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
-import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
+import { makeSecureId } from '@gitroom/nestjs-libraries/services/make.secure.id';
 import {
   LinkedinProvider,
   requireLinkedinOAuthConfig,
@@ -161,8 +161,8 @@ export class LinkedinPageProvider
 
   override async generateAuthUrl() {
     const { clientId } = requireLinkedinOAuthConfig();
-    const state = makeId(6);
-    const codeVerifier = makeId(30);
+    const state = makeSecureId(6);
+    const codeVerifier = makeSecureId(30);
     // A refresh may be the first interactive authorization on this browser;
     // silent authorization turns that valid flow into a generic LinkedIn error.
     const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
@@ -301,7 +301,9 @@ export class LinkedinPageProvider
     ).json();
 
     return {
-      id: id,
+      // namespaced placeholder so the in-between row never collides with the
+      // personal LinkedIn channel row (same org + same member sub)
+      id: `${this.identifier}_${id}`,
       accessToken,
       refreshToken,
       expiresIn,

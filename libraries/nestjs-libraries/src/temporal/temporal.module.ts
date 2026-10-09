@@ -1,5 +1,6 @@
 import { TemporalModule } from 'nestjs-temporal-core';
 import { socialIntegrationList } from '@gitroom/nestjs-libraries/integrations/integration.manager';
+import { workflowSource } from './workflow.bundle';
 
 export const getTemporalModule = (
   isWorkers: boolean,
@@ -64,7 +65,7 @@ export const getTemporalModule = (
               // workflow thread + V8 isolate, sticky cache) on them.
               return {
                 taskQueue,
-                ...(taskQueue === 'main' ? { workflowsPath: path! } : {}),
+                ...(taskQueue === 'main' ? workflowSource(path!) : {}),
                 activityClasses: activityClasses!,
                 autoStart: true,
                 workerOptions: {

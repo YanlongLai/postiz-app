@@ -184,8 +184,8 @@ function history(version) {
 async function main() {
   assert.equal(
     process.version,
-    'v22.12.0',
-    'Run via provisioned Node 22.12.0 + PNPM 10.6.1'
+    `v${require(path.join(root, 'package.json')).volta.node}`,
+    'Run via the repository-pinned Node runtime'
   );
   const bundle = await bundleWorkflowCode({
     workflowsPath: path.join(root, 'apps/orchestrator/src/workflows/index.ts'),
@@ -293,10 +293,11 @@ async function main() {
   );
   await Runtime.instance().shutdown();
 }
-main().catch(async (error) => {
+if (require.main === module) main().catch(async (error) => {
   console.error(error);
   process.exitCode = 1;
   await Runtime.instance()
     .shutdown()
     .catch(() => {});
 });
+module.exports = { history };

@@ -10,6 +10,9 @@ assert.equal(createHash('sha256').update(migration).digest('hex'),
 const operator = require('./apply-schema.cjs');
 assert.equal(operator.MIGRATION_SHA256, createHash('sha256').update(migration).digest('hex'));
 assert.equal(typeof operator.applyReceiptSchema, 'function');
+const upgrade = require('./apply-upgrade.cjs');
+assert.equal(upgrade.loadPlan().plan.version, 'postiz-v2.25.0');
+require('./verify-frontend-routes.cjs');
 assert.equal(process.version, 'v22.20.0');
 assert.equal(execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim(), '10.6.1');
 assert.equal(Prisma.prismaVersion.client, '6.5.0');

@@ -1,0 +1,49 @@
+{
+  "schema_version": "0.1.0",
+  "id": "SERVICE-UPGRADE-HARDENING-20261008",
+  "project": "dappgo-studio",
+  "title": "Pinned service upgrade and recovery hardening",
+  "status": "approved",
+  "risk": "high",
+  "question": "Can the pinned Postiz upgrade preserve production delivery while improving reproducibility, startup and tested recovery?",
+  "hypotheses": [
+    "Integrating v2.25.0 with preserved DappGo receipts and versioned Temporal workflows is release-compatible.",
+    "Pinned images and evidence-preserving retention prevent repeat drift without another control layer.",
+    "Isolated database restore and existing gateway fallback prove recovery without production migration."
+  ],
+  "artifacts": {
+    "prd": "artifacts/SERVICE-UPGRADE-HARDENING-20261008/PRD.md",
+    "tdd": "artifacts/SERVICE-UPGRADE-HARDENING-20261008/TDD.md",
+    "experiment": "artifacts/SERVICE-UPGRADE-HARDENING-20261008/EVIDENCE.md"
+  },
+  "assignment": {
+    "producer": "platform-devops-engineer",
+    "peer_reviewer": "security-engineer",
+    "director": "engineering-director",
+    "assurance": "independent-review"
+  },
+  "budget": {
+    "token_limit": 100000,
+    "max_iterations": 5,
+    "deadline": "2026-10-15"
+  },
+  "acceptance_criteria": [
+    "Pinned Postiz v2.25.0 preserves receipts, provider fixes and existing Temporal histories.",
+    "Selected runtime images have reproducible digest identities.",
+    "Startup bundle optimization passes compatibility and measured startup checks.",
+    "Workload retention preserves diagnostic evidence before bounded deletion.",
+    "Existing gateway fallback and isolated database restore pass without production data changes.",
+    "Selective release and affected health checks pass; completed own worktrees are cleaned."
+  ],
+  "evidence": [
+    "Owner authorized items 1-5 and confirmed recommended isolated recovery scope; no production publication or Bastion deletion."
+  ],
+  "decision": "pending",
+  "provenance": {
+    "codex_task_id": "01a11404-c851-7830-a9f2-0494afcd2891",
+    "host_id": "local",
+    "repository": "https://github.com/gitroomhq/postiz-app.git",
+    "branch": "feature/service-upgrade-hardening-20261008",
+    "worktree": "postiz-service-upgrade-hardening-20261008"
+  }
+}
