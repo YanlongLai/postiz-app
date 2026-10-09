@@ -1,5 +1,19 @@
 # Evidence and checkpoint
 
+## Replay verifier lifecycle follow-up
+
+Temporal 1.15's single-result replay convenience API did not exhaust its cleanup
+iterator, so PASS preceded worker drain. The verification helper now fully
+consumes runReplayHistories before assertions and requires the typed negative
+determinism failure. Nine regression tests and independent assurance passed.
+Native verification with the revised helper mounted read-only into the same
+immutable image exited zero only after every worker stopped: prebuilt 88 ms
+preparation/833 ms replay; source 1482 ms preparation/454 ms replay. Different
+host load affects absolute timings; these are not whole-service startup claims.
+This follow-up changes only verification code and evidence, not the production
+runtime or compiled workflow bundle. The selected image source remains the
+explicitly tested v2.25 integration commit and digest, not a newer arbitrary HEAD.
+
 ## Final image verification, 2026-10-09 07:16 UTC
 
 The corrected linux/amd64 image completed successfully. Local immutable image
