@@ -25,5 +25,6 @@ reports
 **/.env
 **/.env.*
 **/.ai001
+**/.ai001-*
 **/.venv*
 artifacts/SERVICE-UPGRADE-HARDENING-20261008
