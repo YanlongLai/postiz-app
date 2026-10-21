@@ -22,6 +22,12 @@ import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import {
+  fetchMetaJson,
+  metaGraphUrl,
+  requireMetaArray,
+  requireMetaString,
+} from '@gitroom/nestjs-libraries/integrations/social/meta.oauth.http';
 
 export const META_GRAPH_API_VERSION = 'v25.0';
 
@@ -337,50 +343,83 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     codeVerifier: string;
     refresh?: string;
   }) {
-    const getAccessToken = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
-          `?client_id=${process.env.FACEBOOK_APP_ID}` +
-          `&redirect_uri=${encodeURIComponent(
-            `${process.env.FRONTEND_URL}/integrations/social/facebook`
-          )}` +
-          `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
-          `&code=${params.code}`
-      )
-    ).json();
+    const getAccessToken = await fetchMetaJson<Record<string, unknown>>(
+      'facebook',
+      'code-exchange',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'oauth/access_token', {
+        client_id: process.env.FACEBOOK_APP_ID,
+        redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/facebook`,
+        client_secret: process.env.FACEBOOK_APP_SECRET,
+        code: params.code,
+      })
+    );
+    const shortLivedToken = requireMetaString(
+      'facebook',
+      'code-exchange',
+      getAccessToken,
+      'access_token'
+    );
 
-    const { access_token } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
-          '?grant_type=fb_exchange_token' +
-          `&client_id=${process.env.FACEBOOK_APP_ID}` +
-          `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
-          `&fb_exchange_token=${getAccessToken.access_token}&fields=access_token,expires_in`
-      )
-    ).json();
+    const longLivedToken = await fetchMetaJson<Record<string, unknown>>(
+      'facebook',
+      'long-lived-token-exchange',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'oauth/access_token', {
+        grant_type: 'fb_exchange_token',
+        client_id: process.env.FACEBOOK_APP_ID,
+        client_secret: process.env.FACEBOOK_APP_SECRET,
+        fb_exchange_token: shortLivedToken,
+        fields: 'access_token,expires_in',
+      })
+    );
+    const accessToken = requireMetaString(
+      'facebook',
+      'long-lived-token-exchange',
+      longLivedToken,
+      'access_token'
+    );
 
-    const { data } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/permissions?access_token=${access_token}`
-      )
-    ).json();
-
+    const permissionPayload = await fetchMetaJson<Record<string, unknown>>(
+      'facebook',
+      'permissions',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'me/permissions', {
+        access_token: accessToken,
+      })
+    );
+    const data = requireMetaArray(
+      'facebook',
+      'permissions',
+      permissionPayload,
+      'data'
+    );
     const permissions = data
+      .filter((permission): permission is Record<string, unknown> => {
+        return (
+          typeof permission === 'object' &&
+          permission !== null &&
+          !Array.isArray(permission)
+        );
+      })
       .filter((d: any) => d.status === 'granted')
       .map((p: any) => p.permission);
     this.checkScopes(this.scopes, permissions);
 
-    const { id, name, picture } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?fields=id,name,picture&access_token=${access_token}`
-      )
-    ).json();
+    const identity = await fetchMetaJson<Record<string, unknown>>(
+      'facebook',
+      'identity',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'me', {
+        fields: 'id,name,picture',
+        access_token: accessToken,
+      })
+    );
+    const id = requireMetaString('facebook', 'identity', identity, 'id');
+    const name = requireMetaString('facebook', 'identity', identity, 'name');
+    const picture = identity.picture as { data?: { url?: string } } | undefined;
 
     return {
       id,
       name,
-      accessToken: access_token,
-      refreshToken: access_token,
+      accessToken,
+      refreshToken: accessToken,
       expiresIn: dayjs().add(59, 'days').unix() - dayjs().unix(),
       picture: picture?.data?.url || '',
       username: '',

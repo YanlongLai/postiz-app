@@ -21,6 +21,12 @@ import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorato
 import { META_GRAPH_API_VERSION } from '@gitroom/nestjs-libraries/integrations/social/facebook.provider';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import {
+  fetchMetaJson,
+  metaGraphUrl,
+  requireMetaArray,
+  requireMetaString,
+} from '@gitroom/nestjs-libraries/integrations/social/meta.oauth.http';
 
 @Rules(
   "Instagram should have at least one attachment, if it's a story, it can have only one picture"
@@ -465,52 +471,84 @@ export class InstagramProvider
   async authenticate(params: {
     code: string;
     codeVerifier: string;
-    refresh: string;
+    refresh?: string;
   }) {
-    const getAccessToken = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
-          `?client_id=${process.env.FACEBOOK_APP_ID}` +
-          `&redirect_uri=${encodeURIComponent(
-            `${process.env.FRONTEND_URL}/integrations/social/instagram`
-          )}` +
-          `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
-          `&code=${params.code}`
-      )
-    ).json();
+    const getAccessToken = await fetchMetaJson<Record<string, unknown>>(
+      'instagram',
+      'code-exchange',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'oauth/access_token', {
+        client_id: process.env.FACEBOOK_APP_ID,
+        redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/instagram`,
+        client_secret: process.env.FACEBOOK_APP_SECRET,
+        code: params.code,
+      })
+    );
+    const shortLivedToken = requireMetaString(
+      'instagram',
+      'code-exchange',
+      getAccessToken,
+      'access_token'
+    );
 
-    const { access_token, expires_in, ...all } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
-          '?grant_type=fb_exchange_token' +
-          `&client_id=${process.env.FACEBOOK_APP_ID}` +
-          `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
-          `&fb_exchange_token=${getAccessToken.access_token}`
-      )
-    ).json();
+    const longLivedToken = await fetchMetaJson<Record<string, unknown>>(
+      'instagram',
+      'long-lived-token-exchange',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'oauth/access_token', {
+        grant_type: 'fb_exchange_token',
+        client_id: process.env.FACEBOOK_APP_ID,
+        client_secret: process.env.FACEBOOK_APP_SECRET,
+        fb_exchange_token: shortLivedToken,
+      })
+    );
+    const accessToken = requireMetaString(
+      'instagram',
+      'long-lived-token-exchange',
+      longLivedToken,
+      'access_token'
+    );
 
-    const { data } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/permissions?access_token=${access_token}`
-      )
-    ).json();
-
+    const permissionPayload = await fetchMetaJson<Record<string, unknown>>(
+      'instagram',
+      'permissions',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'me/permissions', {
+        access_token: accessToken,
+      })
+    );
+    const data = requireMetaArray(
+      'instagram',
+      'permissions',
+      permissionPayload,
+      'data'
+    );
     const permissions = data
+      .filter((permission): permission is Record<string, unknown> => {
+        return (
+          typeof permission === 'object' &&
+          permission !== null &&
+          !Array.isArray(permission)
+        );
+      })
       .filter((d: any) => d.status === 'granted')
       .map((p: any) => p.permission);
     this.checkScopes(this.scopes, permissions);
 
-    const { id, name, picture } = await (
-      await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?fields=id,name,picture&access_token=${access_token}`
-      )
-    ).json();
+    const identity = await fetchMetaJson<Record<string, unknown>>(
+      'instagram',
+      'identity',
+      metaGraphUrl(META_GRAPH_API_VERSION, 'me', {
+        fields: 'id,name,picture',
+        access_token: accessToken,
+      })
+    );
+    const id = requireMetaString('instagram', 'identity', identity, 'id');
+    const name = requireMetaString('instagram', 'identity', identity, 'name');
+    const picture = identity.picture as { data?: { url?: string } } | undefined;
 
     return {
       id,
       name,
-      accessToken: access_token,
-      refreshToken: access_token,
+      accessToken,
+      refreshToken: accessToken,
       expiresIn: dayjs().add(59, 'days').unix() - dayjs().unix(),
       picture: picture?.data?.url || '',
       username: '',

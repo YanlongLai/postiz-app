@@ -24,6 +24,7 @@ import {
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import { MetaOAuthError } from '@gitroom/nestjs-libraries/integrations/social/meta.oauth.http';
 
 @ApiTags('Integrations')
 @Controller('/integrations')
@@ -165,6 +166,16 @@ export class NoAuthIntegrationsController {
             picture: '',
             username: '',
             additionalSettings: [],
+          });
+        }
+
+        if (err instanceof MetaOAuthError) {
+          console.warn('Social OAuth authentication failed', err.toLog());
+        } else {
+          console.warn('Social OAuth authentication failed', {
+            provider: integration,
+            stage: 'unknown',
+            errorType: err instanceof Error ? err.name : typeof err,
           });
         }
 
