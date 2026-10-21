@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# Build only with the production architecture explicitly selected.
+FROM ghcr.io/yanlonglai/postiz-app@sha256:79edf72054bef8a2d1f28378d3060ddec1d1c76578a4bdfac2a9826b197fa40d AS builder
+WORKDIR /app
+ENV NODE_OPTIONS=--max-old-space-size=4096
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml /packaging-input/
+COPY apps/backend/package.json /packaging-input/apps/backend/package.json
+COPY apps/orchestrator/package.json /packaging-input/apps/orchestrator/package.json
+RUN --network=none test "$(node --version)" = v22.20.0 \
+    && test "$(pnpm --version)" = 10.6.1 \
+    && for path in package.json pnpm-lock.yaml pnpm-workspace.yaml apps/backend/package.json apps/orchestrator/package.json; do cmp "/app/$path" "/packaging-input/$path" || exit 1; done
+COPY apps/backend/ /app/apps/backend/
+COPY apps/orchestrator/ /app/apps/orchestrator/
+COPY libraries/ /app/libraries/
+COPY tsconfig.base.json /app/tsconfig.base.json
+# Installed target-native engines and tools only: no install, dlx or DB access.
+RUN --network=none pnpm exec prisma generate --schema libraries/nestjs-libraries/src/database/prisma/schema.prisma \
+    && pnpm --filter ./apps/backend run build \
+    && pnpm --filter ./apps/orchestrator run build
+
+FROM ghcr.io/yanlonglai/postiz-app@sha256:79edf72054bef8a2d1f28378d3060ddec1d1c76578a4bdfac2a9826b197fa40d AS runtime
+WORKDIR /app
+ENV POSTIZ_WORKFLOW_VERSION=V112
+COPY --from=builder /app/apps/backend/dist/ /app/apps/backend/dist/
+COPY --from=builder /app/apps/orchestrator/dist/ /app/apps/orchestrator/dist/
+COPY --from=builder /app/node_modules/.prisma/client/ /app/node_modules/.prisma/client/
+COPY --from=builder /app/libraries/nestjs-libraries/src/database/prisma/schema.prisma /app/libraries/nestjs-libraries/src/database/prisma/schema.prisma
+COPY var/docker/story-frame-receipts/ /app/var/docker/story-frame-receipts/
+COPY --chmod=0444 artifacts/STORY-FRAME-RECEIPTS-20261008/migration.sql /app/var/docker/story-frame-receipts/migration.sql
+# Deliberately replaces BOTH inherited entrypoint and CMD. No migration at boot.
+ENTRYPOINT ["/bin/sh", "/app/var/docker/story-frame-receipts/start.sh"]
+CMD []

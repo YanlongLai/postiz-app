@@ -16,7 +16,7 @@
 <div align="center">
   <strong>
     <a href="https://postiz.com">Postiz</a> is a social media management platform for scheduling, automating, and analyzing your content.
-    
+
   Use Postiz Cloud for a fully managed experience, or deploy the open-source edition on your own infrastructure.
   </strong>
 </div>
@@ -177,7 +177,7 @@ The main difference is the infrastructure you need to own, approval from social 
 
 <br />
 <br />
-  
+
 ## Postiz Compliance
 
 - This GitHub repository contains the open-source, self-hosted edition of Postiz. Postiz is also available as Postiz Cloud, a fully managed service at postiz.com.
