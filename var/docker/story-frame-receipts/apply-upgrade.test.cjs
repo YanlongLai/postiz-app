@@ -49,7 +49,7 @@ test('unrecognized live baseline is not accepted as an upgrade', async (t) => {
 test('already upgraded catalog is idempotent', async (t) => {
   const client = db(['target']);
   assert.equal((await applyUpgrade(client, { apply: true, directory: fixture(t) })).status, 'verified');
-  assert(!client.executed.some((s) => s.startsWith('ALTER')));
+  assert(!client.executed.some((s) => s.startsWith('ALTER') || s.startsWith('LOCK')));
 });
 test('applies only after locked baseline and verifies target in transaction', async (t) => {
   const client = db(['baseline', 'target']);

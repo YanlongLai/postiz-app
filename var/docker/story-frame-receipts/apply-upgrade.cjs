@@ -48,6 +48,10 @@ async function applyUpgrade(db, { apply = false, directory = __dirname } = {}) {
     await tx.$executeRawUnsafe("SET LOCAL lock_timeout TO '5s'");
     if (apply) {
       await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock(hashtext('dappgo-postiz-upgrade-v225'))");
+    }
+    const before = await schemaDigest(tx);
+    if (before === plan.target_sha256) return { status: 'verified', version: plan.version, sql_sha256: plan.sql_sha256 };
+    if (apply) {
       // Lock existing relations before validating. Concurrent DDL changing the
       // reviewed catalog either waits or causes a bounded atomic rollback.
       const rows = await tx.$queryRawUnsafe("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
@@ -56,8 +60,6 @@ async function applyUpgrade(db, { apply = false, directory = __dirname } = {}) {
         await tx.$executeRawUnsafe('LOCK TABLE public."' + row.tablename.replaceAll('"', '""') + '" IN ACCESS EXCLUSIVE MODE');
       }
     }
-    const before = await schemaDigest(tx);
-    if (before === plan.target_sha256) return { status: 'verified', version: plan.version, sql_sha256: plan.sql_sha256 };
     if (before !== plan.baseline_sha256) fail('postiz_upgrade_baseline_mismatch');
     if (!apply) fail('postiz_upgrade_not_applied');
     for (const statement of statements) await tx.$executeRawUnsafe(statement);
