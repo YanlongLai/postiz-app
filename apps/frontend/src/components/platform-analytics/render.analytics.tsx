@@ -5,6 +5,7 @@ import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { ChartSocial } from '@gitroom/frontend/components/analytics/chart-social';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useToaster } from '@gitroom/react/toaster/toaster';
 
 interface AnalyticsDataItem {
   label: string;
@@ -35,10 +36,7 @@ const TrendIndicator: FC<{ value: number; average?: boolean }> = ({
         fill="none"
         className={isPositive ? '' : 'rotate-180'}
       >
-        <path
-          d="M6 2.5L10 7.5H2L6 2.5Z"
-          fill="currentColor"
-        />
+        <path d="M6 2.5L10 7.5H2L6 2.5Z" fill="currentColor" />
       </svg>
       <span>
         {displayValue}
@@ -87,7 +85,10 @@ const AnalyticsCard: FC<{
             </span>
           </div>
           {item.percentageChange !== undefined && (
-            <TrendIndicator value={item.percentageChange} average={item.average} />
+            <TrendIndicator
+              value={item.percentageChange}
+              average={item.average}
+            />
           )}
         </div>
 
@@ -97,7 +98,11 @@ const AnalyticsCard: FC<{
             {/* Chart */}
             <div className="flex-1 px-[12px] py-[8px]">
               <div className="h-[120px] relative">
-                <ChartSocial data={item.data} color={color} key={`chart-${index}`} />
+                <ChartSocial
+                  data={item.data}
+                  color={color}
+                  key={`chart-${index}`}
+                />
               </div>
             </div>
 
@@ -174,6 +179,8 @@ export const RenderAnalytics: FC<{
   const { integration, date } = props;
   const [loading, setLoading] = useState(true);
   const fetch = useFetch();
+  const t = useT();
+  const toaster = useToaster();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,26 +208,39 @@ export const RenderAnalytics: FC<{
         }
       ) =>
       async () => {
-        const { url } = await (
-          await fetch(
-            `/integrations/social/${integrationData.identifier}?refresh=${integrationData.internalId}`,
-            {
-              method: 'GET',
-            }
-          )
-        ).json();
-        window.location.href = url;
-      },
-    []
-  );
+        const response = await fetch(
+          `/integrations/social/${integrationData.identifier}?refresh=${integrationData.internalId}`,
+          {
+            method: 'GET',
+          }
+        );
+        const body = await response.json().catch(() => ({}));
+        const url = typeof body?.url === 'string' ? body.url : '';
 
-  const t = useT();
+        if (body?.err || !url || url.includes('client_id=undefined')) {
+          toaster.show(
+            body?.message ||
+              t(
+                'channel_refresh_failed',
+                'Unable to refresh this channel. Check its provider configuration.'
+              ),
+            'warning'
+          );
+          return;
+        }
+
+        window.location.assign(url);
+      },
+    [fetch, t, toaster]
+  );
 
   const totals = useMemo(() => {
     return data?.map((p: AnalyticsDataItem) => {
       const value =
-        (p?.data.reduce((acc: number, curr: { total: number }) => acc + curr.total, 0) || 0) /
-        (p.average ? p.data.length : 1);
+        (p?.data.reduce(
+          (acc: number, curr: { total: number }) => acc + curr.total,
+          0
+        ) || 0) / (p.average ? p.data.length : 1);
       if (p.average) {
         return value.toFixed(2) + '%';
       }

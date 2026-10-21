@@ -1,0 +1,7 @@
+{
+  "version": "postiz-v2.25.0",
+  "baseline_sha256": "c7e4ac4820ae3520ded639ff77e8d1e09d06400d90453203305a1204471dcf12",
+  "target_sha256": "a3f4517197dee1588d7928dea526536bdf1e3dd5e7feff8bc7166b59f5f6dba7",
+  "sql_sha256": "688e3fae7167ecad8ffa64957a8405ed0b777957b855f64c7af55b4768ad39cd",
+  "statement_count": 80
+}

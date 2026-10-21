@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# Reuse reviewed OS/native tooling, not the previous overlay's dependencies.
+FROM ghcr.io/yanlonglai/postiz-app@sha256:79edf72054bef8a2d1f28378d3060ddec1d1c76578a4bdfac2a9826b197fa40d AS builder
+WORKDIR /release
+ENV STORAGE_PROVIDER=local
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc /release/
+COPY apps/backend/package.json /release/apps/backend/
+COPY apps/orchestrator/package.json /release/apps/orchestrator/
+COPY apps/frontend/package.json /release/apps/frontend/
+COPY apps/frontend/scripts/fetch-gtm.mjs /release/apps/frontend/scripts/
+COPY apps/commands/package.json /release/apps/commands/
+COPY apps/sdk/package.json /release/apps/sdk/
+COPY apps/extension/package.json /release/apps/extension/
+COPY libraries/nestjs-libraries/src/database/prisma/schema.prisma /release/libraries/nestjs-libraries/src/database/prisma/
+RUN test "$(node --version)" = v22.20.0 \
+    && test "$(pnpm --version)" = 10.6.1 \
+    && DATABASE_URL=postgresql://isolated:unused@127.0.0.1:1/isolated pnpm install --frozen-lockfile
+# Application edits no longer invalidate the locked dependency-install layer.
+ENV NODE_OPTIONS=--max-old-space-size=3072 RAYON_NUM_THREADS=2
+COPY . /release
+RUN pnpm --filter ./apps/backend run build
+RUN pnpm --filter ./apps/orchestrator run build
+RUN pnpm --filter ./apps/frontend run build --webpack \
+    && node var/docker/story-frame-receipts/verify-frontend-routes.cjs \
+    && node var/docker/story-frame-receipts/build-workflow-bundle.cjs
+FROM ghcr.io/yanlonglai/postiz-app@sha256:79edf72054bef8a2d1f28378d3060ddec1d1c76578a4bdfac2a9826b197fa40d AS release
+# Image-local only: replace the inherited source tree, including deleted routes.
+# Merely COPY-ing on top would resurrect files removed by the upstream release.
+RUN test -d /app && mv /app /inherited-app && mkdir /app \
+    && rm -rf /inherited-app
+WORKDIR /app
+COPY --from=builder /release/ /app/
+COPY --chmod=0444 artifacts/STORY-FRAME-RECEIPTS-20261008/migration.sql /app/var/docker/story-frame-receipts/migration.sql
+ENV NODE_OPTIONS="" POSTIZ_WORKFLOW_VERSION=V112 POSTIZ_PREBUILT_WORKFLOWS=true
+# No db-push, reset or publisher is invoked by the build or schema validation.
+ENTRYPOINT ["/bin/sh", "/app/var/docker/story-frame-receipts/start.sh"]
+CMD []

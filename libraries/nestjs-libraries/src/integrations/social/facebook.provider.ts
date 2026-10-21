@@ -19,11 +19,20 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/facebook.dto';
 import { DribbbleDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/dribbble.dto';
 import { Integration } from '@prisma/client';
+import { StoryFrameReceiptContext } from '@gitroom/nestjs-libraries/dtos/posts/story.frame.receipt.dto';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import {
+  facebookPageUrl,
+  findFacebookStoryUrl,
+} from '@gitroom/nestjs-libraries/integrations/social/facebook-story-url';
 
 export const META_GRAPH_API_VERSION = 'v25.0';
+// Meta's Page Story edges still require the v20 contract used by DappGo's
+// Story publish flow. Keep general Page, Feed, OAuth, and analytics calls on
+// the current Graph API version instead of globally downgrading the provider.
+export const FACEBOOK_STORY_GRAPH_API_VERSION = 'v20.0';
 
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story. Video posts (not stories) can carry an optional title."
@@ -536,7 +545,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   private async fbVideoStatus(videoId: string, accessToken: string) {
     const { status } = await (
       await this.fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${videoId}?fields=status&access_token=${accessToken}`,
+        `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${videoId}?fields=status&access_token=${accessToken}`,
         undefined,
         '',
         0,
@@ -576,7 +585,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         if (hasExtension(media.path, 'mp4')) {
           const { video_id, upload_url } = await (
             await this.fetch(
-              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
+              `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${id}/video_stories?upload_phase=start&access_token=${accessToken}`,
               {
                 method: 'POST',
               },
@@ -600,7 +609,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
         } else {
           const { id: photoId } = await (
             await this.fetch(
-              `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
+              `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${id}/photos?access_token=${accessToken}`,
               {
                 method: 'POST',
                 headers: {
@@ -698,6 +707,65 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     },
     integration: Integration
   ): Promise<PendingCheckResponse> {
+    return this.finalizeStoryPost(accessToken, pendingData, integration);
+  }
+
+  override async checkPostStatusWithReceipts(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    let state = pendingData;
+    // A persisted confirmation closes the crash window after receipt commit
+    // but before the activity result reached Temporal. Never republish it.
+    while (state.publishedCount < state.items.length) {
+      const receipt = context.receipts.find(
+        (r) => r.frameIndex === state.publishedCount
+      );
+      if (!receipt) break;
+      state = {
+        ...state,
+        publishedCount: state.publishedCount + 1,
+        lastPostId: receipt.platformId,
+        attempting: null,
+        confirmed: false,
+      };
+    }
+    if (state.publishedCount === state.items.length) {
+      return {
+        status: 'completed',
+        postId: state.lastPostId,
+        releaseURL: await this.resolveFacebookStoryUrl(
+          state.lastPostId,
+          accessToken,
+          integration
+        ),
+      };
+    }
+    return this.checkPostStatus(accessToken, state, integration);
+  }
+
+  override async finalizePostWithReceipts(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
+    return this.finalizeStoryPost(
+      accessToken,
+      pendingData,
+      integration,
+      context
+    );
+  }
+
+  private async finalizeStoryPost(
+    accessToken: string,
+    pendingData: Parameters<FacebookProvider['finalizePost']>[1],
+    integration: Integration,
+    context?: StoryFrameReceiptContext
+  ): Promise<PendingCheckResponse> {
     // Publish exactly one story per call, with an arm -> confirm -> publish
     // handshake: the publish only runs after checkPostStatus witnessed the
     // intent, so a run that dies mid-publish is detectable and the item is
@@ -718,8 +786,8 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     const { post_id: storyPostId } = await (
       await this.fetch(
         item.kind === 'video'
-          ? `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
-          : `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
+          ? `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${integration.internalId}/video_stories?upload_phase=finish&video_id=${item.mediaId}&access_token=${accessToken}`
+          : `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${integration.internalId}/photo_stories?photo_id=${item.mediaId}&access_token=${accessToken}`,
         {
           method: 'POST',
         },
@@ -728,6 +796,27 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           : 'publish photo story'
       )
     ).json();
+
+    if (context) {
+      if (
+        typeof storyPostId !== 'string' ||
+        !storyPostId.trim() ||
+        storyPostId === item.mediaId
+      ) {
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'Story publish outcome unknown; no confirmed platform ID; check the page before retrying'
+        );
+      }
+      await context.record({
+        frameIndex: pendingData.publishedCount,
+        platformId: storyPostId,
+        confirmedAt: new Date().toISOString(),
+        status: 'confirmed',
+      });
+    }
 
     const publishedCount = pendingData.publishedCount + 1;
 
@@ -744,11 +833,59 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       };
     }
 
+    // Facebook's photo_stories/video_stories publish response contains a
+    // post_id, but that ID is not the public Story viewer URL. Meta exposes
+    // the canonical URL on the Page Stories edge; use it instead of building
+    // the known-invalid /stories/<post_id> URL. URL lookup is cosmetic after
+    // the publish mutation, so a lookup failure must not cause a retry that
+    // could publish a duplicate Story.
+    const releaseURL = await this.resolveFacebookStoryUrl(
+      storyPostId,
+      accessToken,
+      integration
+    );
+
     return {
       status: 'completed',
       postId: storyPostId,
-      releaseURL: `https://www.facebook.com/stories/${storyPostId}`,
+      releaseURL,
     };
+  }
+
+  private async resolveFacebookStoryUrl(
+    storyPostId: string,
+    accessToken: string,
+    integration: Integration
+  ): Promise<string> {
+    const pageUrl = facebookPageUrl(
+      integration.profile,
+      integration.internalId
+    );
+
+    try {
+      const response = await this.fetch(
+        `https://graph.facebook.com/${FACEBOOK_STORY_GRAPH_API_VERSION}/${
+          integration.internalId
+        }/stories?fields=post_id,url&access_token=${encodeURIComponent(
+          accessToken
+        )}`,
+        undefined,
+        'resolve Facebook Story URL'
+      );
+      const body = await response.json();
+      const canonicalUrl = findFacebookStoryUrl(body?.data, storyPostId);
+
+      if (canonicalUrl) return canonicalUrl;
+    } catch {
+      // The Story is already live. Never rethrow a cosmetic URL lookup error:
+      // the workflow would otherwise retry the publish mutation and risk a
+      // duplicate. The durable Page URL below is explicit and honest.
+    }
+
+    console.warn(
+      '[facebook] Story published but Meta did not return a canonical Story URL; using the Page URL fallback'
+    );
+    return pageUrl;
   }
 
   // Old blocking behavior, kept for workflow versions before v1.0.6 that don't
