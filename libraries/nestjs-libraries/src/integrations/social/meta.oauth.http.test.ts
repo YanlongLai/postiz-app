@@ -39,12 +39,14 @@ describe('Meta OAuth HTTP guards', () => {
     FRONTEND_URL: process.env.FRONTEND_URL,
     FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
     FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
+    FACEBOOK_LOGIN_CONFIG_ID: process.env.FACEBOOK_LOGIN_CONFIG_ID,
   };
 
   beforeEach(() => {
     process.env.FRONTEND_URL = 'https://postiz.example.test';
     process.env.FACEBOOK_APP_ID = 'app-id';
     process.env.FACEBOOK_APP_SECRET = 'app-secret';
+    delete process.env.FACEBOOK_LOGIN_CONFIG_ID;
   });
 
   afterEach(() => {
@@ -52,6 +54,7 @@ describe('Meta OAuth HTTP guards', () => {
     process.env.FRONTEND_URL = originalEnv.FRONTEND_URL;
     process.env.FACEBOOK_APP_ID = originalEnv.FACEBOOK_APP_ID;
     process.env.FACEBOOK_APP_SECRET = originalEnv.FACEBOOK_APP_SECRET;
+    process.env.FACEBOOK_LOGIN_CONFIG_ID = originalEnv.FACEBOOK_LOGIN_CONFIG_ID;
     jest.restoreAllMocks();
   });
 
@@ -161,6 +164,47 @@ describe('Meta OAuth HTTP guards', () => {
         )
       );
       expect(firstRequestUrl).not.toContain('refresh=');
+    }
+  );
+
+  it.each([
+    ['facebook', FacebookProvider, '/facebook'],
+    ['instagram', InstagramProvider, '/instagram'],
+  ])(
+    'includes the Meta Login for Business configuration for %s authorization',
+    async (_provider, Provider, callbackPath) => {
+      process.env.FACEBOOK_LOGIN_CONFIG_ID = '873512395784947';
+
+      const result = await new Provider().generateAuthUrl();
+      const url = new URL(result.url);
+
+      expect(url.searchParams.get('config_id')).toBe('873512395784947');
+      expect(url.searchParams.get('response_type')).toBe('code');
+      expect(url.searchParams.get('override_default_response_type')).toBe(
+        'true'
+      );
+      expect(url.searchParams.get('redirect_uri')).toBe(
+        `https://postiz.example.test/integrations/social${callbackPath}`
+      );
+    }
+  );
+
+  it.each([
+    ['facebook', FacebookProvider],
+    ['instagram', InstagramProvider],
+  ])(
+    'keeps the legacy authorization shape when no Meta configuration is configured',
+    async (_provider, Provider) => {
+      delete process.env.FACEBOOK_LOGIN_CONFIG_ID;
+
+      const result = await new Provider().generateAuthUrl();
+      const url = new URL(result.url);
+
+      expect(url.searchParams.has('config_id')).toBe(false);
+      expect(url.searchParams.has('response_type')).toBe(false);
+      expect(url.searchParams.has('override_default_response_type')).toBe(
+        false
+      );
     }
   );
 
