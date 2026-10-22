@@ -1,0 +1,47 @@
+{
+  "schema_version": "0.1.0",
+  "id": "MKT-META-OAUTH-CONFIG-20261021",
+  "project": "dappgo-studio",
+  "title": "Connect Postiz Facebook and Instagram providers through a Meta Login for Business configuration",
+  "repository": "gitroomhq/postiz-app",
+  "owner": "DappGo engineering",
+  "status": "approved",
+  "risk": "high",
+  "scope": [
+    "Add the reviewed Meta Login for Business configuration identifier to Facebook and standard Instagram authorization URLs",
+    "Keep canonical redirect URIs and existing token exchange behavior unchanged",
+    "Apply the narrow additive Integration.customName schema repair required by the reviewed provider code",
+    "Deploy through the official DappGo release path and verify the DappGo Facebook Page and Instagram Business connection"
+  ],
+  "non_goals": [
+    "Do not print, rotate, or commit credential values",
+    "Do not publish or schedule social content",
+    "Do not change unrelated providers or permissions outside the reviewed Meta configuration"
+  ],
+  "acceptance_criteria": [
+    "Authorization URLs include the configured Meta Login for Business config_id when configured and preserve a safe fallback when absent",
+    "Regression tests cover Facebook and standard Instagram URL construction with and without config_id",
+    "The schema Job verifies or adds only nullable Integration.customName and is idempotent without destructive DDL",
+    "The selected DappGo Page and Business identities remain the only production assets used for verification",
+    "The reviewed image is deployed through the official release path with immutable source and image evidence",
+    "A fresh Facebook provider connection and a fresh Instagram provider connection complete without Authentication failed",
+    "Postiz health is fresh and no new provider OAuth failure is present in the verified logs",
+    "No credential values, OAuth codes, or access tokens are printed or committed"
+  ],
+  "provenance": {
+    "source": "production://postiz/facebook-instagram-provider-authentication-failed",
+    "diagnosis": "Meta Login for Business configuration was missing from the authorization request",
+    "owner_confirmation": "confirmed in current session",
+    "codex_task_id": "POSTIZ-META-OAUTH-CONFIG-20261021-local",
+    "host_id": "Yenlungs-MacBook-Pro-2.local",
+    "repository": "https://github.com/gitroomhq/postiz-app.git",
+    "branch": "codex/meta-oauth-config-20261021",
+    "base_commit": "f0a07798d1426cc911739e613f9c30d6a95ad5a7",
+    "worktree": "postiz-meta-oauth-config-20261021"
+  },
+  "governance": {
+    "reversible": true,
+    "sensitive_or_external_side_effect": true,
+    "product_context_required": true
+  }
+}

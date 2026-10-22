@@ -5,7 +5,7 @@ const { createHash } = require('node:crypto');
 const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
-const { applyUpgrade, loadPlan, schemaDigest } = require('./apply-upgrade.cjs');
+const { CATALOG_SQL, applyUpgrade, loadPlan, schemaDigest } = require('./apply-upgrade.cjs');
 const hash = (s) => createHash('sha256').update(s).digest('hex');
 const fixture = (t, options = {}) => {
   const directory = mkdtempSync(join(tmpdir(), 'postiz-upgrade-plan-'));
@@ -64,6 +64,10 @@ test('DDL error propagates to rollback instead of success', async (t) => {
 });
 test('invalid catalog cannot be hashed as a healthy identity', async () => {
   await assert.rejects(schemaDigest({ $queryRawUnsafe: async () => [] }), /catalog_invalid/);
+});
+test('v2.25 catalog excludes only the independently-owned Integration.customName extension', () => {
+  assert.match(CATALOG_SQL, /c\.relname<>'_prisma_migrations'/);
+  assert.match(CATALOG_SQL, /NOT \(c\.relname='Integration' AND a\.attname='customName'\)/);
 });
 for (const sql of ['DROP TABLE "Media";', 'ALTER TABLE "Media" DROP COLUMN path;', 'TRUNCATE "Media";', 'DELETE FROM "Media";', 'UPDATE "Media" SET path=1;']) {
   test('rejects destructive migration ' + sql.split(' ')[0], (t) => {

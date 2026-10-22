@@ -11,7 +11,12 @@ const CATALOG_SQL = `SELECT jsonb_build_object(
    ORDER BY c.relname,a.attname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
    JOIN pg_attribute a ON a.attrelid=c.oid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
    WHERE n.nspname='public' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped
-   AND c.relname<>'_prisma_migrations'),
+   AND c.relname<>'_prisma_migrations'
+   -- Integration.customName is an independently-owned additive extension
+   -- applied by apply-schema.cjs after the v2.25 upgrade. Exclude only that
+   -- one documented column so repeated schema runs remain idempotent while
+   -- all other catalog drift still fails closed against this plan.
+   AND NOT (c.relname='Integration' AND a.attname='customName')),
  'constraints', (SELECT jsonb_agg(jsonb_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid))
    ORDER BY c.relname,k.conname) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
    JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname<>'_prisma_migrations'),

@@ -455,6 +455,12 @@ export class InstagramProvider
 
   async generateAuthUrl() {
     const state = makeSecureId(6);
+    const loginConfigId = process.env.FACEBOOK_LOGIN_CONFIG_ID?.trim();
+    const loginConfigQuery = loginConfigId
+      ? `&config_id=${encodeURIComponent(
+          loginConfigId
+        )}&response_type=code&override_default_response_type=true`
+      : '';
     return {
       url:
         `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth` +
@@ -463,7 +469,8 @@ export class InstagramProvider
           `${process.env.FRONTEND_URL}/integrations/social/instagram`
         )}` +
         `&state=${state}` +
-        `&scope=${encodeURIComponent(this.scopes.join(','))}`,
+        `&scope=${encodeURIComponent(this.scopes.join(','))}` +
+        loginConfigQuery,
       codeVerifier: makeSecureId(10),
       state,
     };
