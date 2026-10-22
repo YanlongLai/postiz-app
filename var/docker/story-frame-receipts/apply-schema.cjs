@@ -3,7 +3,33 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { createHash } = require('node:crypto');
 const MIGRATION_SHA256 = '91ad195e56fbaf0e964c732f5aaccaa1f1bd9b04b5d566b1d2f396ee700a61ee';
+const INTEGRATION_SCHEMA_VERSION = 'postiz-integration-custom-name-v1';
 const fail = code => { const error = new Error(code); error.safeCode = code; throw error; };
+
+async function integrationSchemaState(db) {
+  const [table] = await db.$queryRawUnsafe(`SELECT
+    to_regclass('public."Integration"') IS NOT NULL AS "integrationExists"`);
+  if (!table?.integrationExists) fail('postiz_integration_baseline_missing');
+  const columns = await db.$queryRawUnsafe(`SELECT column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='Integration' AND column_name='customName'`);
+  if (!columns.length) return 'absent';
+  if (columns.length !== 1 || columns[0].data_type !== 'text' || columns[0].is_nullable !== 'YES'
+    || columns[0].column_default !== null) fail('postiz_integration_custom_name_invalid');
+  return 'ready';
+}
+
+async function applyIntegrationSchema(db, { apply = false } = {}) {
+  return db.$transaction(async tx => {
+    if (apply) await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock(hashtext('dappgo-postiz-integration-schema-v1'))");
+    const before = await integrationSchemaState(tx);
+    if (before === 'ready') return { status: 'verified', contractVersion: INTEGRATION_SCHEMA_VERSION };
+    if (!apply) fail('postiz_integration_schema_not_applied');
+    await tx.$executeRawUnsafe('ALTER TABLE public."Integration" ADD COLUMN IF NOT EXISTS "customName" TEXT');
+    if (await integrationSchemaState(tx) !== 'ready') fail('postiz_integration_schema_application_not_verified');
+    return { status: 'applied', contractVersion: INTEGRATION_SCHEMA_VERSION };
+  }, { maxWait: 5000, timeout: 30000 });
+}
 
 async function schemaState(db) {
   const [state] = await db.$queryRawUnsafe(`SELECT
@@ -72,7 +98,11 @@ if (require.main === module) {
     const { PrismaClient } = require('@prisma/client');
     const db = new PrismaClient();
     applyReceiptSchema(db, { apply: args[0] === '--apply' })
-      .then(async receipt => ({ receipt, upgrade: await require('./apply-upgrade.cjs').applyUpgrade(db, { apply: args[0] === '--apply' }) }))
+      .then(async receipt => ({
+        receipt,
+        upgrade: await require('./apply-upgrade.cjs').applyUpgrade(db, { apply: args[0] === '--apply' }),
+        integration: await applyIntegrationSchema(db, { apply: args[0] === '--apply' }),
+      }))
       .then(result => console.log(JSON.stringify(result)))
       .catch(error => {
         // Never print connection strings, raw Prisma diagnostics or row data.
@@ -81,4 +111,5 @@ if (require.main === module) {
       }).finally(() => db.$disconnect());
   }
 }
-module.exports = { schemaState, applyReceiptSchema, MIGRATION_SHA256 };
+module.exports = { schemaState, applyReceiptSchema, integrationSchemaState, applyIntegrationSchema,
+  INTEGRATION_SCHEMA_VERSION, MIGRATION_SHA256 };

@@ -10,6 +10,7 @@
   "scope": [
     "Add the reviewed Meta Login for Business configuration identifier to Facebook and standard Instagram authorization URLs",
     "Keep canonical redirect URIs and existing token exchange behavior unchanged",
+    "Apply the narrow additive Integration.customName schema repair required by the reviewed provider code",
     "Deploy through the official DappGo release path and verify the DappGo Facebook Page and Instagram Business connection"
   ],
   "non_goals": [
@@ -20,6 +21,7 @@
   "acceptance_criteria": [
     "Authorization URLs include the configured Meta Login for Business config_id when configured and preserve a safe fallback when absent",
     "Regression tests cover Facebook and standard Instagram URL construction with and without config_id",
+    "The schema Job verifies or adds only nullable Integration.customName and is idempotent without destructive DDL",
     "The selected DappGo Page and Business identities remain the only production assets used for verification",
     "The reviewed image is deployed through the official release path with immutable source and image evidence",
     "A fresh Facebook provider connection and a fresh Instagram provider connection complete without Authentication failed",
