@@ -1,0 +1,59 @@
+{
+  "schema_version": "0.1.0",
+  "id": "POSTIZ-OAUTH-SOURCE-PROMOTE-20261022",
+  "project": "dappgo-studio",
+  "title": "Promote reviewed Postiz OAuth and schema repair to fork main and deploy",
+  "status": "review",
+  "risk": "high",
+  "acceptance_criteria": [
+    "Reviewed repair is merged to YanlongLai/postiz-app main",
+    "Required focused regression and independent review pass",
+    "Official deployment verifies exact merged source and image identity",
+    "Fresh health and connected-channel readback pass without social publication",
+    "New worktree is removed safely after evidence is preserved"
+  ],
+  "governance": {
+    "reversible": true,
+    "sensitive_or_external_side_effect": true,
+    "product_context_required": true
+  },
+  "question": "Can the preserved Postiz OAuth/schema repair be promoted to canonical fork main and officially deployed with exact source/image identity?",
+  "hypotheses": [
+    "Preserving repair commit ancestry allows the existing immutable verified image to be released without rebuilding unrelated code."
+  ],
+  "artifacts": {
+    "prd": "artifacts/POSTIZ-OAUTH-SOURCE-PROMOTE-20261022/PRD.md",
+    "tdd": "artifacts/POSTIZ-OAUTH-SOURCE-PROMOTE-20261022/TDD.md",
+    "experiment": "artifacts/POSTIZ-OAUTH-SOURCE-PROMOTE-20261022/EVIDENCE.md",
+    "review": "artifacts/POSTIZ-OAUTH-SOURCE-PROMOTE-20261022/REVIEW.md"
+  },
+  "assignment": {
+    "producer": "Codex task 01a16211-ed83-79c1-af01-bf7acea4ea7f",
+    "peer_reviewer": "independent read-only reviewer",
+    "director": "primary agent release decision",
+    "assurance": "independent read-only reviewer and deterministic release gates"
+  },
+  "budget": {
+    "token_limit": 30000,
+    "max_iterations": 3,
+    "deadline": "2026-10-22"
+  },
+  "provenance": {
+    "codex_task_id": "01a16211-ed83-79c1-af01-bf7acea4ea7f",
+    "host_id": "local",
+    "repository": "https://github.com/gitroomhq/postiz-app.git",
+    "branch": "codex/postiz-oauth-source-promote-20261022",
+    "worktree": "postiz-oauth-source-promote-20261022"
+  },
+  "evidence": [
+    "PRD.md",
+    "TDD.md",
+    "EVIDENCE.md",
+    "DELEGATION.md",
+    "REVIEW.md",
+    "node22-schema.log:20 pass",
+    "node22-jest.log:117 pass",
+    "marketing-unittest.log:175 pass"
+  ],
+  "decision": "release"
+}
