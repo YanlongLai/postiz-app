@@ -152,11 +152,22 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       };
     }
 
+    // code 324 subcode 2069019 "Missing or invalid image file": Facebook
+    // could not fetch the media URL. When Meta flags it is_transient the
+    // file is fine and the fetch should simply be retried; Story uploads are
+    // unpublished, so a retry can never duplicate a post.
     if (body.indexOf('2069019') > -1) {
+      if (/"is_transient"\s*:\s*true/.test(body)) {
+        return {
+          type: 'retry' as const,
+          value: 'Facebook could not fetch the media file, retrying',
+        };
+      }
+
       return {
         type: 'bad-body' as const,
         value: 'Invalid file',
-      }
+      };
     }
 
     if (body.indexOf('1404102') > -1) {

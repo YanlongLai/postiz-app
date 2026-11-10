@@ -102,3 +102,29 @@ describe('FacebookProvider Story publishing', () => {
     warning.mockRestore();
   });
 });
+
+describe('FacebookProvider media fetch errors', () => {
+  const body = (transient: boolean) =>
+    JSON.stringify({
+      error: {
+        message: 'Missing or invalid image file',
+        type: 'OAuthException',
+        code: 324,
+        error_subcode: 2069019,
+        is_transient: transient,
+      },
+    });
+
+  it('retries a transient 2069019 media fetch failure', () => {
+    const provider = new FacebookProvider();
+    expect(provider.handleErrors(body(true))?.type).toBe('retry');
+  });
+
+  it('keeps a non-transient 2069019 as a permanent invalid file', () => {
+    const provider = new FacebookProvider();
+    expect(provider.handleErrors(body(false))).toEqual({
+      type: 'bad-body',
+      value: 'Invalid file',
+    });
+  });
+});
