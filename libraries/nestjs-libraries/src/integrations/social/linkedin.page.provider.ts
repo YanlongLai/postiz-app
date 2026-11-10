@@ -64,8 +64,6 @@ export class LinkedinPageProvider
   override refreshWait = true;
   override maxConcurrentJob = 2; // LinkedIn Page has professional posting limits
   override scopes = [
-    'openid',
-    'profile',
     'w_member_social',
     'r_basicprofile',
     'rw_organization_admin',
@@ -98,25 +96,9 @@ export class LinkedinPageProvider
       })
     ).json();
 
-    const { vanityName } = await (
-      await fetch('https://api.linkedin.com/v2/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-    ).json();
-
-    const {
-      name,
-      sub: id,
-      picture,
-    } = await (
-      await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-    ).json();
+    const { id, name, picture, username } = await this.memberProfile(
+      accessToken
+    );
 
     return {
       id,
@@ -125,7 +107,7 @@ export class LinkedinPageProvider
       expiresIn: expires_in,
       name,
       picture,
-      username: vanityName,
+      username,
     };
   }
 
@@ -280,25 +262,9 @@ export class LinkedinPageProvider
 
     this.checkScopes(this.scopes, scope);
 
-    const {
-      name,
-      sub: id,
-      picture,
-    } = await (
-      await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-    ).json();
-
-    const { vanityName } = await (
-      await fetch('https://api.linkedin.com/v2/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-    ).json();
+    const { id, name, picture, username } = await this.memberProfile(
+      accessToken
+    );
 
     return {
       // namespaced placeholder so the in-between row never collides with the
@@ -309,7 +275,42 @@ export class LinkedinPageProvider
       expiresIn,
       name,
       picture,
-      username: vanityName,
+      username,
+    };
+  }
+
+  // Community Management apps use r_basicprofile; they may not have OIDC.
+  private async memberProfile(accessToken: string) {
+    if (!accessToken) {
+      throw new Error(
+        'LinkedIn Page token exchange did not return an access token'
+      );
+    }
+    const response = await fetch('https://api.linkedin.com/v2/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `LinkedIn Page profile request failed (${response.status})`
+      );
+    }
+    const profile = await response.json();
+    if (!profile.id) {
+      throw new Error(
+        'LinkedIn Page profile response is missing the member ID'
+      );
+    }
+    return {
+      id: profile.id,
+      name:
+        [profile.localizedFirstName, profile.localizedLastName]
+          .filter(Boolean)
+          .join(' ') ||
+        profile.vanityName ||
+        profile.id,
+      // This temporary member row is replaced with the selected Page's logo.
+      picture: '',
+      username: profile.vanityName,
     };
   }
 
