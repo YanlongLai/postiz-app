@@ -33,6 +33,7 @@ import {
 import {
   BadBody,
   Disconnect,
+  RefreshToken,
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
@@ -219,7 +220,7 @@ export class PostActivity {
     // them. Under V109+ (no heartbeatTimeout) this is a no-op and can be
     // dropped once all V108 executions have drained
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, async () => {
+      this.handleDisconnect(integration, async (integration) => {
         const getIntegration = this._integrationManager.getSocialIntegration(
           integration.providerIdentifier
         );
@@ -280,10 +281,10 @@ export class PostActivity {
   // a terminal error without needing a new workflow.
   private async handleDisconnect<T>(
     integration: Integration,
-    func: () => Promise<T>
+    func: (integration: Integration) => Promise<T>
   ): Promise<T> {
     try {
-      return await func();
+      return await this.withThreadsToken(integration, func);
     } catch (err) {
       if (err instanceof Disconnect) {
         try {
@@ -308,6 +309,82 @@ export class PostActivity {
     }
   }
 
+  private async withThreadsToken<T>(
+    integration: Integration,
+    publish: (integration: Integration) => Promise<T>
+  ): Promise<T> {
+    if (integration.providerIdentifier !== 'threads') {
+      return publish(integration);
+    }
+
+    // Workflows may carry a token captured days ago. Always use the persisted
+    // credentials, including refreshes made by the cron or a previous activity.
+    let current = await this._integrationService.getIntegrationById(
+      integration.organizationId,
+      integration.id
+    );
+    if (!current || current.deletedAt) {
+      throw new BadBody('threads', '{}', '{}', 'Threads channel is unavailable');
+    }
+
+    const failure = (message: string) =>
+      new BadBody('threads', '{}', '{}', message);
+    let refreshed = false;
+    const refresh = async () => {
+      const token = await this._refreshIntegrationService
+        .refresh(current, 'Threads access token expired or expires soon')
+        .catch(() => false as const);
+      if (!token || !token.accessToken) {
+        throw failure(
+          'Threads token refresh failed. Please reconnect your Threads channel.'
+        );
+      }
+
+      refreshed = true;
+      current = {
+        ...current,
+        token: token.accessToken,
+        refreshToken: token.refreshToken,
+      };
+    };
+
+    // Threads stores a conservative 58-day lifetime. Refresh a day before
+    // that deadline, well past the 24-hour minimum token age for refresh.
+    if (
+      current.tokenExpiration &&
+      new Date(current.tokenExpiration).getTime() <=
+        Date.now() + 24 * 60 * 60 * 1000
+    ) {
+      await refresh();
+    }
+
+    try {
+      return await publish(current);
+    } catch (err) {
+      if (!(err instanceof RefreshToken)) {
+        throw err;
+      }
+      // Only an explicit token rejection proves the mutation did not happen.
+      // Never retry timeouts, transport errors or a successful publish's reads.
+      if (!refreshed) {
+        await refresh();
+        try {
+          return await publish(current);
+        } catch (retryError) {
+          if (!(retryError instanceof RefreshToken)) {
+            throw retryError;
+          }
+        }
+      }
+
+      // A terminal failure prevents the workflow's generic refresh loop from
+      // refreshing again after our single recovery attempt.
+      throw failure(
+        'Threads access token expired after refresh. Please reconnect your Threads channel.'
+      );
+    }
+  }
+
   private async postSocialInternal(
     integration: Integration,
     posts: Post[],
@@ -318,7 +395,7 @@ export class PostActivity {
     // them. Under V109+ (no heartbeatTimeout) this is a no-op and can be
     // dropped once all V108 executions have drained
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, () =>
+      this.handleDisconnect(integration, (integration) =>
         this.postSocialBody(integration, posts, allowPending)
       )
     );
@@ -424,7 +501,7 @@ export class PostActivity {
       integration.providerIdentifier
     );
 
-    return this.handleDisconnect(integration, () =>
+    return this.handleDisconnect(integration, (integration) =>
       getIntegration.checkPostStatus(integration.token, pendingData, integration)
     );
   }
@@ -436,7 +513,7 @@ export class PostActivity {
     );
 
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, () =>
+      this.handleDisconnect(integration, (integration) =>
         getIntegration.finalizePost(integration.token, pendingData, integration)
       )
     );
@@ -479,7 +556,7 @@ export class PostActivity {
       postId,
       publicationId
     );
-    return this.handleDisconnect(integration, () =>
+    return this.handleDisconnect(integration, (integration) =>
       provider.checkPostStatusWithReceipts(
         integration.token,
         pendingData,
@@ -505,7 +582,7 @@ export class PostActivity {
         postId,
         publicationId
       );
-      return this.handleDisconnect(integration, () =>
+      return this.handleDisconnect(integration, (integration) =>
         provider.finalizePostWithReceipts(
           integration.token,
           pendingData,
