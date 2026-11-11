@@ -52,7 +52,8 @@ describe('activity publication receipt guard', () => {
       } as any,
       null!,
       { getSocialIntegration } as any,
-      null!,
+      // Threads publishes reload persisted credentials first.
+      { getIntegrationById: jest.fn(async () => integration) } as any,
       null!,
       null!,
       null!,

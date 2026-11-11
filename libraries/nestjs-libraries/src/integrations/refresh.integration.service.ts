@@ -21,6 +21,28 @@ export class RefreshIntegrationService {
       integration.providerIdentifier
     );
 
+    const remaining = integration.tokenExpiration
+      ? new Date(integration.tokenExpiration).getTime() - Date.now()
+      : 0;
+    // Threads stores a 58-day lifetime. A publish may have refreshed the token
+    // while the cron slept on its old deadline: another background refresh
+    // within 24 hours would be rejected. Explicit token-error recovery still
+    // gets one attempt, even if the stored expiry was inaccurate.
+    if (
+      integration.providerIdentifier === 'threads' &&
+      !cause &&
+      remaining > 57 * 24 * 60 * 60 * 1000
+    ) {
+      return {
+        id: integration.internalId,
+        name: integration.name,
+        username: integration.profile || '',
+        accessToken: integration.token,
+        refreshToken: integration.refreshToken,
+        expiresIn: Math.floor(remaining / 1000),
+      };
+    }
+
     const refresh = await this.refreshProcess(integration, socialProvider, cause);
 
     if (!refresh) {
