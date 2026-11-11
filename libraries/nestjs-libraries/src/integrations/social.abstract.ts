@@ -14,6 +14,10 @@ import {
 import sharp from 'sharp';
 import { createReadStream, readFileSync, statSync } from 'fs';
 import { Readable } from 'stream';
+import {
+  isBeforeConnectError,
+  isTransientNetworkError,
+} from './network.errors';
 
 // Media reads answer headers in well under a second and the chunk sizes the
 // providers ask for finish in under two, with the slowest healthy read we
@@ -293,7 +297,11 @@ export abstract class SocialAbstract {
       ).data;
     } catch (err: any) {
       // axios reports an aborted signal as a canceled request
-      if (err?.code !== 'ERR_CANCELED' && !isReadTimeout(err)) {
+      if (
+        err?.code !== 'ERR_CANCELED' &&
+        !isReadTimeout(err) &&
+        !isTransientNetworkError(err)
+      ) {
         throw err;
       }
 
@@ -383,7 +391,7 @@ export abstract class SocialAbstract {
         }
         return Buffer.from(await response.arrayBuffer());
       } catch (err) {
-        if (!isReadTimeout(err)) {
+        if (!isReadTimeout(err) && !isTransientNetworkError(err)) {
           throw err;
         }
 
@@ -573,11 +581,32 @@ export abstract class SocialAbstract {
     // providers carry access_token there and details are stored by Temporal.
     setHeartbeatDetails(`fetch ${stripQuery(url)}`);
 
-    const request = await fetch(url, {
-      ...options,
-      // @ts-ignore - undici-only option, not in the lib.dom RequestInit type
-      dispatcher: (options as any).dispatcher ?? getSsrfSafeDispatcher(),
-    });
+    let request: Response;
+    try {
+      request = await fetch(url, {
+        ...options,
+        // @ts-ignore - undici-only option, not in the lib.dom RequestInit type
+        dispatcher: (options as any).dispatcher ?? getSsrfSafeDispatcher(),
+      });
+    } catch (err) {
+      if (!isTransientNetworkError(err)) throw err;
+      const readOnly = ['GET', 'HEAD'].includes(
+        (options.method || 'GET').toUpperCase()
+      );
+      if (totalRetries < 2 && (readOnly || isBeforeConnectError(err))) {
+        await timer(1000);
+        return this.fetch(
+          url,
+          options,
+          identifier,
+          totalRetries + 1,
+          ignoreConcurrency,
+          message
+        );
+      }
+      // Preserve the original failure for the workflow/activity retry policy.
+      throw err;
+    }
 
     if (request.status === 200 || request.status === 201) {
       return request;
