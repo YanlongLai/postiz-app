@@ -380,7 +380,6 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       accessToken,
       integration
     );
-
     return { threadId, permalink };
   }
 

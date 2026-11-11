@@ -115,6 +115,8 @@ describe('Threads publish token recovery', () => {
     activity = new PostActivity(
       {
         updateTags: jest.fn(async (_org: string, value: Post[]) => value),
+        // No publication evidence yet, so the publish path runs.
+        getPostById: jest.fn(async () => null),
         updateMedia: jest.fn(async () => []),
         getStoryFrameReceipts: jest.fn(async () => ({ receipts: [] })),
       } as any,

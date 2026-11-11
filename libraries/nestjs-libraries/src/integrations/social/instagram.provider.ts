@@ -1252,13 +1252,12 @@ export class InstagramProvider
     ).json();
 
     // Get the permalink from the parent post
-    const { permalink } = await (
-      await this.fetch(
-        `https://${type}/${META_GRAPH_API_VERSION}/${postId}?fields=permalink&access_token=${
-          userToken || accessToken
-        }`
-      )
-    ).json();
+    const permalink = await this.igPermalink(
+      postId,
+      userToken || accessToken,
+      type,
+      integration
+    );
 
     return [
       {

@@ -1,3 +1,4 @@
+import './network.defaults';
 import { initializeSentry } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
 initializeSentry('orchestrator', true);
 import 'source-map-support/register';
@@ -7,8 +8,6 @@ dayjs.extend(utc);
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@gitroom/orchestrator/app.module';
-import * as dns from 'node:dns';
-dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
