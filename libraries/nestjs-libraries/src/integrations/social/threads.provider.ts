@@ -361,7 +361,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   private async publishThread(
     userId: string,
     accessToken: string,
-    creationId: string
+    creationId: string,
+    integration: Integration
   ): Promise<{ threadId: string; permalink: string }> {
     await this.checkLoaded(creationId, accessToken);
 
@@ -374,12 +375,11 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       )
     ).json();
 
-    const { permalink } = await (
-      await this.fetch(
-        `https://graph.threads.net/v1.0/${threadId}?fields=id,permalink&access_token=${accessToken}`
-      )
-    ).json();
-
+    const permalink = await this.threadPermalink(
+      threadId,
+      accessToken,
+      integration
+    );
     return { threadId, permalink };
   }
 
@@ -711,7 +711,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     const { threadId: replyThreadId, permalink } = await this.publishThread(
       userId,
       accessToken,
-      replyContentId
+      replyContentId,
+      integration
     );
 
     return [

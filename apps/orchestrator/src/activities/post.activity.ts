@@ -329,6 +329,8 @@ export class PostActivity {
     posts: Post[],
     allowPending: boolean
   ) {
+    const confirmed = await this.confirmedPublication(integration, posts);
+    if (confirmed) return confirmed;
     // Stage markers: whatever ran last is what a timed-out activity reports.
     // Providers that go through this.fetch overwrite these with the exact URL;
     // the ones on their own HTTP client (x, youtube, bluesky) are still
@@ -416,6 +418,48 @@ export class PostActivity {
     }
 
     return postNow;
+  }
+
+  private async confirmedPublication(integration: Integration, posts: Post[]) {
+    const results = [];
+    let unconfirmed = false;
+    for (const post of posts) {
+      const current = await this._postService.getPostById(
+        post.id,
+        integration.organizationId
+      );
+      const hasId = current?.releaseId && current.releaseId !== 'missing';
+      if (!hasId && !current?.releaseURL) {
+        unconfirmed = true;
+        continue;
+      }
+      // Repeat occurrences intentionally reuse the row and its previous ID.
+      // Once a newer ID is persisted, a retry of that occurrence must stop.
+      if (
+        post.intervalInDays &&
+        post.state === State.PUBLISHED &&
+        post.releaseId === current.releaseId &&
+        post.releaseURL === current.releaseURL
+      ) {
+        unconfirmed = true;
+        continue;
+      }
+      results.push({
+        id: post.id,
+        postId: hasId ? current.releaseId : '',
+        releaseURL: current.releaseURL || '',
+        status: 'success' as const,
+      });
+    }
+    if (results.length && unconfirmed) {
+      throw new BadBody(
+        integration.providerIdentifier,
+        '{}',
+        '{}',
+        'Part of this post is already published. Please check your account before posting again to avoid duplicates.'
+      );
+    }
+    return results.length ? results : undefined;
   }
 
   @ActivityMethod()

@@ -568,24 +568,41 @@ export class PostsRepository {
   }
 
   async changeState(id: string, state: State, err?: any, body?: any) {
-    const update = await this._post.model.post.update({
-      where: {
-        id,
-      },
-      data: {
-        state,
-        ...(err
-          ? { error: typeof err === 'string' ? err : JSON.stringify(err) }
-          : {}),
-      },
-      include: {
-        integration: {
-          select: {
-            providerIdentifier: true,
-          },
-        },
-      },
-    });
+    const error = err
+      ? { error: typeof err === 'string' ? err : JSON.stringify(err) }
+      : {};
+    const published = {
+      OR: [
+        { state: State.PUBLISHED },
+        { releaseId: { not: null, notIn: ['', 'missing'] } },
+        { releaseURL: { not: null, notIn: [''] } },
+      ],
+    };
+
+    if (state === State.ERROR) {
+      // Conditional writes keep a concurrent updatePost safe: a reply or
+      // notification failure must never demote a confirmed publication.
+      await this._post.model.post.updateMany({
+        where: { id, NOT: published },
+        data: { state, ...error },
+      });
+      await this._post.model.post.updateMany({
+        where: { id, ...published },
+        data: { state: State.PUBLISHED, ...error },
+      });
+    }
+
+    const include = {
+      integration: { select: { providerIdentifier: true } },
+    } as const;
+    const update =
+      state === State.ERROR
+        ? await this._post.model.post.findUniqueOrThrow({ where: { id }, include })
+        : await this._post.model.post.update({
+            where: { id },
+            data: { state, ...error },
+            include,
+          });
 
     if (state === 'ERROR' && err && body) {
       try {
