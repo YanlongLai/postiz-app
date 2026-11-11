@@ -1,4 +1,8 @@
 import {
+  findRecentMetaPublication,
+  metaMediaCount,
+} from './recent.publication';
+import {
   AnalyticsData,
   AuthTokenDetails,
   PendingCheckResponse,
@@ -37,6 +41,38 @@ export class InstagramProvider
   implements SocialProvider
 {
   identifier = 'instagram';
+  async findRecentPublication(
+    integration: Integration,
+    token: string,
+    post: PostDetails,
+    since: Date,
+    domain = 'graph.facebook.com'
+  ): Promise<PostResponse | undefined> {
+    // Stories are not returned by /media; retain their receipt-based path.
+    if (post.settings?.post_type === 'story') return;
+    const url = new URL(
+      `https://${domain}/${META_GRAPH_API_VERSION}/${integration.internalId}/media`
+    );
+    url.search = new URLSearchParams({
+      fields: 'id,caption,timestamp,permalink,media_type,children{id}',
+      access_token: token,
+      limit: '100',
+    }).toString();
+    return findRecentMetaPublication(
+      (url) => this.fetch(url),
+      url,
+      post,
+      since,
+      (item) => ({
+        id: item.id,
+        text: item.caption || '',
+        publishedAt: item.timestamp,
+        url: item.permalink || '',
+        mediaCount: metaMediaCount(item),
+      }),
+      true
+    );
+  }
   name = 'Instagram\n(Facebook Business)';
   isBetweenSteps = true;
   toolTip = 'Instagram must be business and connected to a Facebook page';

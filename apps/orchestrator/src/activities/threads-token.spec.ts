@@ -116,7 +116,8 @@ describe('Threads publish token recovery', () => {
       {
         updateTags: jest.fn(async (_org: string, value: Post[]) => value),
         // No publication evidence yet, so the publish path runs.
-        getPostById: jest.fn(async () => null),
+        getPostById: jest.fn(async () => ({ ...posts[0] })),
+        setPublishAttemptUncertain: jest.fn(async () => {}),
         updateMedia: jest.fn(async () => []),
         getStoryFrameReceipts: jest.fn(async () => ({ receipts: [] })),
       } as any,
@@ -164,7 +165,7 @@ describe('Threads publish token recovery', () => {
 
       const result = await activity.postSocialPending(integration, posts);
 
-      expect(result[0].pendingData).toEqual(pending);
+      expect(result[0].pendingData).toMatchObject(pending);
       expect(urls()[0]).toContain(
         'grant_type=th_refresh_token&access_token=old-token'
       );

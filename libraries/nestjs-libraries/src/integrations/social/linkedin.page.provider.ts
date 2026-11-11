@@ -1,3 +1,4 @@
+import { matchingPublication } from './recent.publication';
 import {
   AnalyticsData,
   AuthTokenDetails,
@@ -59,6 +60,88 @@ export class LinkedinPageProvider
   implements SocialProvider
 {
   override identifier = 'linkedin-page';
+  async findRecentPublication(
+    integration: Integration,
+    token: string,
+    post: PostDetails,
+    since: Date
+  ): Promise<PostResponse | undefined> {
+    const author = `urn:li:organization:${integration.internalId}`;
+    // Use the same Rest.li API/version and author URN as createMainPost.
+    let start = 0;
+    for (let page = 0; page < 20; page++) {
+      const params = new URLSearchParams({
+        q: 'author',
+        author,
+        count: '100',
+        start: String(start),
+        sortBy: 'LAST_MODIFIED',
+      });
+      const body = await (
+        await this.fetch(`https://api.linkedin.com/rest/posts?${params}`, {
+          headers: linkedinAnalyticsHeaders(token),
+        })
+      ).json();
+      if (!Array.isArray(body.elements))
+        throw new Error('Invalid LinkedIn recent posts response');
+      for (const item of body.elements) {
+        if (item.author !== author || item.lifecycleState !== 'PUBLISHED')
+          continue;
+        const match = matchingPublication(
+          {
+            id: item.id,
+            text: item.commentary || '',
+            publishedAt: item.publishedAt || item.createdAt,
+            url: `https://www.linkedin.com/feed/update/${item.id}`,
+            // Image carousels may be uploaded as one PDF document. Compare
+            // the published attachment count rather than the source image count.
+            mediaCount:
+              item.content?.multiImage?.images?.length ??
+              (item.content?.media ? 1 : undefined),
+          },
+          {
+            ...post,
+            message: this.fixText(post.message),
+            media: this.assetBoolean(post.settings?.post_as_images_carousel)
+              ? post.media?.slice(0, 1)
+              : post.media,
+          },
+          since
+        );
+        if (match) return match;
+      }
+      if (
+        body.elements.length &&
+        body.elements.every(
+          (item: any) =>
+            Number.isFinite(item.lastModifiedAt) &&
+            item.lastModifiedAt < since.getTime()
+        )
+      )
+        return;
+      const next = body.paging?.links?.find((link: any) => link.rel === 'next');
+      if (next) {
+        // Read only the offset; never follow a supplied host with our token.
+        const nextStart = Number(
+          new URL(next.href, 'https://api.linkedin.com').searchParams.get(
+            'start'
+          )
+        );
+        if (!Number.isInteger(nextStart) || nextStart <= start)
+          throw new Error('Incomplete LinkedIn recent posts pagination');
+        start = nextStart;
+      } else if (body.paging?.total > start + body.elements.length) {
+        if (!body.elements.length)
+          throw new Error('Incomplete LinkedIn recent posts pagination');
+        start += body.elements.length;
+      } else if (body.elements.length < 100) {
+        return;
+      } else {
+        start += 100;
+      }
+    }
+    throw new Error('LinkedIn recent posts scan limit reached');
+  }
   override name = 'LinkedIn Page';
   override isBetweenSteps = true;
   override refreshWait = true;

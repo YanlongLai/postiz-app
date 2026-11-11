@@ -1,3 +1,4 @@
+import { findRecentMetaPublication } from './recent.publication';
 import {
   AnalyticsData,
   AuthTokenDetails,
@@ -45,6 +46,50 @@ export const FACEBOOK_STORY_GRAPH_API_VERSION = 'v20.0';
 )
 export class FacebookProvider extends SocialAbstract implements SocialProvider {
   identifier = 'facebook';
+  async findRecentPublication(
+    integration: Integration,
+    token: string,
+    post: PostDetails,
+    since: Date
+  ): Promise<PostResponse | undefined> {
+    if (post.settings?.post_type === 'story') return;
+    const url = new URL(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/published_posts`
+    );
+    url.search = new URLSearchParams({
+      fields:
+        'id,message,created_time,permalink_url,attachments{media_type,subattachments}',
+      access_token: token,
+      since: String(Math.floor(since.getTime() / 1000)),
+      limit: '100',
+    }).toString();
+    return findRecentMetaPublication(
+      (url) => this.fetch(url),
+      url,
+      post,
+      since,
+      (item) => {
+        const attachments = item.attachments?.data;
+        let mediaCount: number | undefined;
+        if (attachments && !item.attachments.paging?.next) {
+          const album = attachments.find((a: any) => a.media_type === 'album');
+          if (album?.subattachments?.data && !album.subattachments.paging?.next)
+            mediaCount = album.subattachments.data.length;
+          else if (!album)
+            mediaCount = attachments.filter((a: any) =>
+              ['photo', 'video'].includes(a.media_type)
+            ).length;
+        }
+        return {
+          id: item.id,
+          text: item.message || '',
+          publishedAt: item.created_time,
+          url: item.permalink_url || '',
+          mediaCount,
+        };
+      }
+    );
+  }
   name = 'Facebook Page';
   isBetweenSteps = true;
   scopes = [

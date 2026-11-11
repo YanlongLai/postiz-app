@@ -14,7 +14,18 @@ import {
 import { Integration, Post, State } from '@prisma/client';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
-import { AuthTokenDetails } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { ApplicationFailure } from '@temporalio/activity';
+import {
+  isBeforeConnectError,
+  isTransientNetworkError,
+} from '@gitroom/nestjs-libraries/integrations/network.errors';
+import {
+  AuthTokenDetails,
+  PostDetails,
+  PostResponse,
+  PendingCheckResponse,
+  SocialProvider,
+} from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
@@ -35,6 +46,11 @@ import {
   Disconnect,
   RefreshToken,
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
+
+type PublicationPost = Pick<
+  Post,
+  'id' | 'intervalInDays' | 'state' | 'releaseId' | 'releaseURL'
+>;
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -230,31 +246,45 @@ export class PostActivity {
           posts
         );
 
-        return getIntegration.comment(
-          integration.internalId,
-          postId,
-          lastPostId,
-          integration.token,
-          await Promise.all(
-            (newPosts || []).map(async (p) => ({
-              id: p.id,
-              message: stripHtmlValidation(
-                getIntegration.editor,
-                p.content,
-                true,
-                false,
-                !/<\/?[a-z][\s\S]*>/i.test(p.content),
-                getIntegration.mentionFormat
-              ),
-              settings: JSON.parse(p.settings || '{}'),
-              media: await this._postService.updateMedia(
-                p.id,
-                JSON.parse(p.image || '[]'),
-                getIntegration?.convertToJPEG || false
-              ),
-            }))
-          ),
-          integration
+        const mappedPosts = await Promise.all(
+          (newPosts || []).map(async (p) => ({
+            id: p.id,
+            message: stripHtmlValidation(
+              getIntegration.editor,
+              p.content,
+              true,
+              false,
+              !/<\/?[a-z][\s\S]*>/i.test(p.content),
+              getIntegration.mentionFormat
+            ),
+            settings: JSON.parse(p.settings || '{}'),
+            media: await this._postService.updateMedia(
+              p.id,
+              JSON.parse(p.image || '[]'),
+              getIntegration?.convertToJPEG || false
+            ),
+          }))
+        );
+        const publish = () =>
+          getIntegration.comment(
+            integration.internalId,
+            postId,
+            lastPostId,
+            integration.token,
+            mappedPosts,
+            integration
+          );
+        if (integration.providerIdentifier !== 'threads') return publish();
+        const confirmed = await this.confirmedPublication(integration, posts);
+        if (confirmed) return confirmed;
+        return this.publishWithReconciliation(
+          integration,
+          posts,
+          mappedPosts.map((post) => ({
+            ...post,
+            replyToId: lastPostId || postId,
+          })),
+          publish
         );
       })
     );
@@ -324,7 +354,12 @@ export class PostActivity {
       integration.id
     );
     if (!current || current.deletedAt) {
-      throw new BadBody('threads', '{}', '{}', 'Threads channel is unavailable');
+      throw new BadBody(
+        'threads',
+        '{}',
+        '{}',
+        'Threads channel is unavailable'
+      );
     }
 
     const failure = (message: string) =>
@@ -456,20 +491,25 @@ export class PostActivity {
     );
 
     setHeartbeatDetails(`${integration.providerIdentifier}: publish`);
-    const postNow =
-      allowPending && getIntegration.postPending
-        ? await getIntegration.postPending(
-            integration.internalId,
-            integration.token,
-            mappedPosts,
-            integration
-          )
-        : await getIntegration.post(
-            integration.internalId,
-            integration.token,
-            mappedPosts,
-            integration
-          );
+    const postNow = await this.publishWithReconciliation(
+      integration,
+      posts,
+      mappedPosts,
+      async () =>
+        allowPending && getIntegration.postPending
+          ? getIntegration.postPending(
+              integration.internalId,
+              integration.token,
+              mappedPosts,
+              integration
+            )
+          : getIntegration.post(
+              integration.internalId,
+              integration.token,
+              mappedPosts,
+              integration
+            )
+    );
 
     // The post is already published at this point: the streak is best-effort,
     // failing the activity here would retry it and publish again.
@@ -497,7 +537,222 @@ export class PostActivity {
     return postNow;
   }
 
-  private async confirmedPublication(integration: Integration, posts: Post[]) {
+  private reconciliationEnabled(provider: SocialProvider, post: PostDetails) {
+    return (
+      !!provider.findRecentPublication && post.settings?.post_type !== 'story'
+    );
+  }
+
+  private async reconcilePublications(
+    integration: Integration,
+    mappedPosts: (PostDetails & { replyToId?: string })[]
+  ): Promise<PostResponse[] | undefined> {
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    const recovered: PostResponse[] = [];
+    for (const post of mappedPosts) {
+      if (!this.reconciliationEnabled(provider, post)) continue;
+      // Always read the persisted marker: workflow inputs predate the failure.
+      const current = await this._postService.getPostById(
+        post.id,
+        integration.organizationId
+      );
+      const marker = JSON.parse(
+        current?.settings || '{}'
+      ).publishAttemptUncertainAt;
+      if (!marker) continue;
+      let found: PostResponse | undefined;
+      try {
+        const timestamp = new Date(marker).getTime();
+        if (!Number.isFinite(timestamp))
+          throw new Error('Invalid publication uncertainty timestamp');
+        found = await provider.findRecentPublication(
+          integration,
+          integration.token,
+          post,
+          new Date(timestamp - 5 * 60 * 1000)
+        );
+      } catch (err) {
+        // Even provider BadBody/auth errors must leave reconciliation retryable.
+        // No create is safe until a read has established the previous outcome.
+        throw new ApplicationFailure(
+          'Recent publication lookup failed',
+          'publication_lookup',
+          false
+        );
+      }
+      if (found) {
+        await this._postService.updatePost(
+          post.id,
+          found.postId,
+          found.releaseURL
+        );
+        recovered.push(found);
+      }
+      // Receipt first, marker second: a crash between writes is handled by the
+      // persisted receipt guard on the next attempt.
+      await this._postService.setPublishAttemptUncertain(
+        post.id,
+        integration.organizationId
+      );
+    }
+    if (recovered.length) {
+      if (recovered.length !== mappedPosts.length) {
+        throw new BadBody(
+          integration.providerIdentifier,
+          '{}',
+          '{}',
+          'Part of this post is already published. Please check your account before posting again to avoid duplicates.'
+        );
+      }
+      return recovered;
+    }
+  }
+
+  private async publishAttempt<T>(
+    integration: Integration,
+    posts: PublicationPost[],
+    publish: () => Promise<T>
+  ): Promise<T> {
+    const startedAt = new Date().toISOString();
+    try {
+      return await publish();
+    } catch (err) {
+      if (isTransientNetworkError(err) && !isBeforeConnectError(err)) {
+        for (const post of posts) {
+          await this._postService.setPublishAttemptUncertain(
+            post.id,
+            integration.organizationId,
+            startedAt
+          );
+        }
+      }
+      throw err;
+    }
+  }
+
+  private async publishWithReconciliation(
+    integration: Integration,
+    posts: PublicationPost[],
+    mappedPosts: (PostDetails & { replyToId?: string })[],
+    publish: () => Promise<PostResponse[]>
+  ): Promise<PostResponse[]> {
+    const recovered = await this.reconcilePublications(
+      integration,
+      mappedPosts
+    );
+    if (recovered) return recovered;
+    const result = await this.publishAttempt(integration, posts, publish);
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    return result?.map((response) => {
+      const post = posts.find((post) => post.id === response.id);
+      const mapped = mappedPosts.find((post) => post.id === response.id);
+      // The create may run in a later activity. Preserve the original receipt
+      // baseline so intentional repeat occurrences can still publish.
+      return response.status === 'pending' &&
+        post &&
+        mapped &&
+        this.reconciliationEnabled(provider, mapped)
+        ? {
+            ...response,
+            pendingData: {
+              ...response.pendingData,
+              __publicationPost: this.publicationPost(post),
+            },
+          }
+        : response;
+    });
+  }
+
+  private publicationPost(post: PublicationPost) {
+    const { id, intervalInDays, state, releaseId, releaseURL } = post;
+    return { id, intervalInDays, state, releaseId, releaseURL };
+  }
+
+  private carryPublicationPost(
+    result: PendingCheckResponse,
+    post?: PublicationPost
+  ) {
+    return post && 'pendingData' in result
+      ? {
+          ...result,
+          pendingData: { ...result.pendingData, __publicationPost: post },
+        }
+      : result;
+  }
+
+  private async pendingWithReconciliation(
+    integration: Integration,
+    pendingData: any,
+    postId: string | undefined,
+    run: (data: any) => Promise<PendingCheckResponse>,
+    mutation = false
+  ): Promise<PendingCheckResponse> {
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    const id = pendingData?.__publicationPost?.id || postId;
+    // Old in-flight histories may not carry a row identity. Their provider's
+    // existing container-status/receipt recovery remains in effect.
+    if (!id || !provider.findRecentPublication) return run(pendingData);
+    const row = await this._postService.getPostById(
+      id,
+      integration.organizationId
+    );
+    if (!row) throw new Error('Publication post is unavailable');
+    const settings = JSON.parse(row.settings || '{}');
+    if (settings.post_type === 'story') return run(pendingData);
+    const original: PublicationPost =
+      pendingData.__publicationPost || this.publicationPost(row);
+    const confirmed = await this.confirmedPublication(integration, [original]);
+    if (confirmed)
+      return {
+        status: 'completed',
+        postId: confirmed[0].postId,
+        releaseURL: confirmed[0].releaseURL,
+      };
+    const post = {
+      id,
+      message: stripHtmlValidation(
+        provider.editor,
+        row.content,
+        true,
+        false,
+        !/<\/?[a-z][\s\S]*>/i.test(row.content),
+        provider.mentionFormat
+      ),
+      settings,
+      // Reconciliation needs the count, not media uploads/conversion.
+      media: JSON.parse(row.image || '[]'),
+    };
+    const recovered = await this.reconcilePublications(integration, [post]);
+    if (recovered)
+      return {
+        status: 'completed',
+        postId: recovered[0].postId,
+        releaseURL: recovered[0].releaseURL,
+      };
+    // The workflow checks status before retrying a deferred create. LinkedIn's
+    // interrupted-create guard can only be disarmed after a successful negative
+    // lookup; a failed lookup above must leave the handshake untouched.
+    const data =
+      settings.publishAttemptUncertainAt &&
+      integration.providerIdentifier === 'linkedin-page'
+        ? { ...pendingData, attempting: false, confirmed: false }
+        : pendingData;
+    const result = mutation
+      ? await this.publishAttempt(integration, [original], () => run(data))
+      : await run(data);
+    return this.carryPublicationPost(result, original);
+  }
+
+  private async confirmedPublication(
+    integration: Integration,
+    posts: PublicationPost[]
+  ): Promise<PostResponse[] | undefined> {
     const results = [];
     let unconfirmed = false;
     for (const post of posts) {
@@ -520,6 +775,12 @@ export class PostActivity {
       ) {
         unconfirmed = true;
         continue;
+      }
+      if (JSON.parse(current.settings || '{}').publishAttemptUncertainAt) {
+        await this._postService.setPublishAttemptUncertain(
+          post.id,
+          integration.organizationId
+        );
       }
       results.push({
         id: post.id,
@@ -546,7 +807,13 @@ export class PostActivity {
     );
 
     return this.handleDisconnect(integration, (integration) =>
-      getIntegration.checkPostStatus(integration.token, pendingData, integration)
+      this.pendingWithReconciliation(
+        integration,
+        pendingData,
+        undefined,
+        (data) =>
+          getIntegration.checkPostStatus(integration.token, data, integration)
+      )
     );
   }
 
@@ -558,7 +825,14 @@ export class PostActivity {
 
     return withHeartbeat(() =>
       this.handleDisconnect(integration, (integration) =>
-        getIntegration.finalizePost(integration.token, pendingData, integration)
+        this.pendingWithReconciliation(
+          integration,
+          pendingData,
+          undefined,
+          (data) =>
+            getIntegration.finalizePost(integration.token, data, integration),
+          true
+        )
       )
     );
   }
@@ -601,11 +875,13 @@ export class PostActivity {
       publicationId
     );
     return this.handleDisconnect(integration, (integration) =>
-      provider.checkPostStatusWithReceipts(
-        integration.token,
-        pendingData,
-        integration,
-        context
+      this.pendingWithReconciliation(integration, pendingData, postId, (data) =>
+        provider.checkPostStatusWithReceipts(
+          integration.token,
+          data,
+          integration,
+          context
+        )
       )
     );
   }
@@ -627,11 +903,18 @@ export class PostActivity {
         publicationId
       );
       return this.handleDisconnect(integration, (integration) =>
-        provider.finalizePostWithReceipts(
-          integration.token,
-          pendingData,
+        this.pendingWithReconciliation(
           integration,
-          context
+          pendingData,
+          postId,
+          (data) =>
+            provider.finalizePostWithReceipts(
+              integration.token,
+              data,
+              integration,
+              context
+            ),
+          true
         )
       );
     });

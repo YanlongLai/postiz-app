@@ -47,6 +47,7 @@ describe('activity publication receipt guard', () => {
     const activity = new PostActivity(
       {
         getPostById,
+        setPublishAttemptUncertain: jest.fn().mockResolvedValue(undefined),
         updateTags: jest.fn().mockResolvedValue([]),
         getStoryFrameReceipts: jest.fn().mockResolvedValue({ receipts: [] }),
       } as any,
@@ -99,6 +100,7 @@ describe('activity publication receipt guard', () => {
       const publish = method === 'postSocial' ? provider.post : provider.postPending;
       expect(publish).toHaveBeenCalledTimes(1);
 
+      const providerReads = getSocialIntegration.mock.calls.length;
       // Simulate the publication receipt being persisted before the retry.
       getPostById.mockResolvedValue({ releaseId: 'confirmed-id' });
       await expect((activity as any)[method](integration, posts)).resolves.toEqual([
@@ -109,7 +111,7 @@ describe('activity publication receipt guard', () => {
           status: 'success',
         },
       ]);
-      expect(getSocialIntegration).toHaveBeenCalledTimes(1);
+      expect(getSocialIntegration).toHaveBeenCalledTimes(providerReads);
       expect(publish).toHaveBeenCalledTimes(1);
     }
   );
