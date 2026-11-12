@@ -523,6 +523,32 @@ export class PostsRepository {
     });
   }
 
+  async setPublishAttemptUncertain(
+    id: string,
+    organizationId: string,
+    at?: string
+  ) {
+    // Settings is already persisted JSON text. Compare-and-swap preserves
+    // concurrent settings edits and avoids a migration for this internal marker.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const post = await this._post.model.post.findFirstOrThrow({
+        where: { id, organizationId },
+        select: { settings: true },
+      });
+      const settings = JSON.parse(post.settings || '{}');
+      if (at)
+        settings.publishAttemptUncertainAt =
+          settings.publishAttemptUncertainAt || at;
+      else delete settings.publishAttemptUncertainAt;
+      const result = await this._post.model.post.updateMany({
+        where: { id, organizationId, settings: post.settings },
+        data: { settings: JSON.stringify(settings) },
+      });
+      if (result.count) return;
+    }
+    throw new Error('Publication uncertainty settings changed concurrently');
+  }
+
   updatePost(id: string, postId: string, releaseURL: string) {
     return this._post.model.post.update({
       where: {

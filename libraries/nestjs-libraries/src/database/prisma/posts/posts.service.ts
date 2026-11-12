@@ -160,6 +160,14 @@ export class PostsService {
     return this._postRepository.searchForMissingThreeHoursPosts();
   }
 
+  setPublishAttemptUncertain(id: string, organizationId: string, at?: string) {
+    return this._postRepository.setPublishAttemptUncertain(
+      id,
+      organizationId,
+      at
+    );
+  }
+
   updatePost(id: string, postId: string, releaseURL: string) {
     return this._postRepository.updatePost(id, postId, releaseURL);
   }

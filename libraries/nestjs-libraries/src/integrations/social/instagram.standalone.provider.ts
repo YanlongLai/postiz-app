@@ -27,6 +27,20 @@ export class InstagramStandaloneProvider
   implements SocialProvider
 {
   identifier = 'instagram-standalone';
+  async findRecentPublication(
+    integration: Integration,
+    token: string,
+    post: PostDetails,
+    since: Date
+  ): Promise<PostResponse | undefined> {
+    return instagramProvider.findRecentPublication(
+      integration,
+      token,
+      post,
+      since,
+      'graph.instagram.com'
+    );
+  }
   name = 'Instagram\n(Standalone)';
   isBetweenSteps = false;
   refreshCron = true;

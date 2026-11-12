@@ -88,6 +88,15 @@ export type AuthTokenDetails = {
 };
 
 export interface ISocialMediaIntegration {
+  // Read-only recovery after a create whose response was lost. Throw on any
+  // incomplete/failed lookup; undefined means a successful lookup found nothing.
+  findRecentPublication?(
+    integration: Integration,
+    token: string,
+    post: PostDetails & { replyToId?: string },
+    since: Date
+  ): Promise<PostResponse | undefined>;
+
   post(
     id: string,
     accessToken: string,

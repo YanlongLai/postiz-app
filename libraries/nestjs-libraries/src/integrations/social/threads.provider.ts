@@ -1,4 +1,8 @@
 import {
+  findRecentMetaPublication,
+  metaMediaCount,
+} from './recent.publication';
+import {
   AnalyticsData,
   AuthTokenDetails,
   PendingCheckResponse,
@@ -21,6 +25,52 @@ import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 
 export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   identifier = 'threads';
+  async findRecentPublication(
+    integration: Integration,
+    token: string,
+    post: PostDetails & { replyToId?: string },
+    since: Date
+  ): Promise<PostResponse | undefined> {
+    const url = new URL(
+      `https://graph.threads.net/v1.0/${
+        post.replyToId || integration.internalId
+      }/${post.replyToId ? 'replies' : 'threads'}`
+    );
+    url.search = new URLSearchParams({
+      fields:
+        'id,text,timestamp,permalink,media_type,children{id},is_reply,username' +
+        (post.replyToId ? ',replied_to' : ''),
+      access_token: token,
+      since: String(Math.floor(since.getTime() / 1000)),
+      limit: '100',
+    }).toString();
+    if (post.replyToId && !integration.profile)
+      throw new Error('Threads reply author is unavailable');
+    return findRecentMetaPublication(
+      (url) => this.fetch(url),
+      url,
+      post,
+      since,
+      (item) => {
+        if (post.replyToId) {
+          if (
+            item.username !== integration.profile?.replace(/^@/, '') ||
+            item.replied_to?.id !== post.replyToId
+          )
+            return;
+        } else if (item.is_reply) return;
+        return {
+          id: item.id,
+          text: item.text || '',
+          publishedAt: item.timestamp,
+          url: item.permalink || '',
+          mediaCount: metaMediaCount(item),
+        };
+      },
+      true,
+      !post.replyToId
+    );
+  }
   name = 'Threads';
   isBetweenSteps = false;
   scopes = [
