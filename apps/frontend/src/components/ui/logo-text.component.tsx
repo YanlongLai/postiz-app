@@ -1,6 +1,27 @@
+'use client';
+
 import React from 'react';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 export const LogoTextComponent = () => {
+  const { brandLogoUrl, brandName, brandWhiteLabel } = useVariables();
+  if (brandWhiteLabel) {
+    return (
+      <div className="flex items-center gap-[10px]">
+        {!!brandLogoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={brandLogoUrl}
+            alt=""
+            width={32}
+            height={32}
+            className="rounded-[8px]"
+          />
+        )}
+        <span className="text-[22px] font-[600] leading-none">{brandName}</span>
+      </div>
+    );
+  }
   return (
     <svg
       width="101"

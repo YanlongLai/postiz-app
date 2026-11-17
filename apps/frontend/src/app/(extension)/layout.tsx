@@ -1,5 +1,8 @@
 export const dynamic = 'force-dynamic';
 import '../global.scss';
+import { headers } from 'next/headers';
+import { brandConfigServerSide } from '@gitroom/helpers/utils/brand';
+import { resolvePublicUrls } from '@gitroom/helpers/utils/public.origin';
 import 'react-tooltip/dist/react-tooltip.css';
 import '@copilotkit/react-ui/styles.css';
 import LayoutContext from '@gitroom/frontend/components/layout/layout.context';
@@ -16,10 +19,15 @@ const jakartaSans = Plus_Jakarta_Sans({
 });
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
+  const requestHeaders = await headers();
+  const publicUrls = resolvePublicUrls(
+    requestHeaders.get('x-forwarded-host') || requestHeaders.get('host')
+  );
+  const brand = brandConfigServerSide();
   return (
     <html>
       <head>
-        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href={brand.faviconUrl} sizes="any" />
       </head>
       <body
         className={clsx(jakartaSans.className, 'dark text-primary !bg-primary')}
@@ -31,11 +39,19 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           }
           stripeClient=""
           environment={process.env.NODE_ENV!}
-          backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL!}
+          backendUrl={publicUrls.backendUrl}
           plontoKey={process.env.NEXT_PUBLIC_POLOTNO!}
           billingEnabled={!!process.env.STRIPE_PUBLISHABLE_KEY}
           discordUrl={process.env.NEXT_PUBLIC_DISCORD_SUPPORT!}
-          frontEndUrl={process.env.FRONTEND_URL!}
+          frontEndUrl={publicUrls.frontEndUrl}
+          brandName={brand.name}
+          brandWhiteLabel={brand.whiteLabel}
+          brandLogoUrl={brand.logoUrl}
+          brandTagline={brand.tagline}
+          brandHomeUrl={brand.homeUrl}
+          brandTermsUrl={brand.termsUrl}
+          brandPrivacyUrl={brand.privacyUrl}
+          brandSourceUrl={brand.sourceUrl}
           isGeneral={!!process.env.IS_GENERAL}
           genericOauth={!!process.env.POSTIZ_GENERIC_OAUTH}
           oauthLogoUrl={process.env.NEXT_PUBLIC_POSTIZ_OAUTH_LOGO_URL!}

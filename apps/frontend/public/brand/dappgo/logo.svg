@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">DappGo</title>
+  <rect width="64" height="64" rx="15" fill="#2966db"/>
+  <path fill="#fff" d="M17 13h12.7C41.7 13 48 20.1 48 32s-6.3 19-18.3 19H17V13Zm8.3 7.4v23.2h4.1c6.4 0 10.3-3.5 10.3-11.6s-3.9-11.6-10.3-11.6h-4.1Z"/>
+</svg>

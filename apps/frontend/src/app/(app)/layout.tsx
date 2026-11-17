@@ -1,4 +1,6 @@
 import { SentryComponent } from '@gitroom/frontend/components/layout/sentry.component';
+import { brandConfigServerSide } from '@gitroom/helpers/utils/brand';
+import { resolvePublicUrls } from '@gitroom/helpers/utils/public.origin';
 
 export const dynamic = 'force-dynamic';
 import '../global.scss';
@@ -16,7 +18,7 @@ import UtmSaver from '@gitroom/helpers/utils/utm.saver';
 import { DubAnalytics } from '@gitroom/frontend/components/layout/dubAnalytics';
 import { FacebookComponent } from '@gitroom/frontend/components/layout/facebook.component';
 import { GoogleTagManagerComponent } from '@gitroom/frontend/components/layout/gtm.component';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import {
   cookieName,
   fallbackLng,
@@ -32,6 +34,11 @@ const jakartaSans = Plus_Jakarta_Sans({
 });
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
+  const requestHeaders = await headers();
+  const publicUrls = resolvePublicUrls(
+    requestHeaders.get('x-forwarded-host') || requestHeaders.get('host')
+  );
+  const brand = brandConfigServerSide();
   const cookieStore = await cookies();
   const language = cookieStore.get(cookieName)?.value || fallbackLng;
   const Plausible = !!process.env.STRIPE_PUBLISHABLE_KEY
@@ -40,7 +47,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <html>
       <head>
-        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href={brand.faviconUrl} sizes="any" />
         {!!process.env.DATAFAST_WEBSITE_ID && (
           <Script
             data-website-id={process.env.DATAFAST_WEBSITE_ID}
@@ -59,13 +66,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             process.env.STORAGE_PROVIDER! as 'local' | 'cloudflare'
           }
           environment={process.env.NODE_ENV!}
-          backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL!}
+          backendUrl={publicUrls.backendUrl}
           plontoKey={process.env.NEXT_PUBLIC_POLOTNO!}
           stripeClient={process.env.STRIPE_PUBLISHABLE_KEY!}
           isChatBase={!!process.env.CHATBASE_TOKEN}
           billingEnabled={!!process.env.STRIPE_PUBLISHABLE_KEY}
           discordUrl={process.env.NEXT_PUBLIC_DISCORD_SUPPORT!}
-          frontEndUrl={process.env.FRONTEND_URL!}
+          frontEndUrl={publicUrls.frontEndUrl}
+          brandName={brand.name}
+          brandWhiteLabel={brand.whiteLabel}
+          brandLogoUrl={brand.logoUrl}
+          brandTagline={brand.tagline}
+          brandHomeUrl={brand.homeUrl}
+          brandTermsUrl={brand.termsUrl}
+          brandPrivacyUrl={brand.privacyUrl}
+          brandSourceUrl={brand.sourceUrl}
           isGeneral={!!process.env.IS_GENERAL}
           genericOauth={!!process.env.POSTIZ_GENERIC_OAUTH}
           oauthLogoUrl={process.env.NEXT_PUBLIC_POSTIZ_OAUTH_LOGO_URL!}
