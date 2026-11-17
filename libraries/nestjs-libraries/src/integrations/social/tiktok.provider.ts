@@ -22,6 +22,50 @@ import { createReadStream } from 'fs';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import { brandNameServerSide } from '@gitroom/helpers/utils/brand';
+
+export const TIKTOK_DEFAULT_SCOPES = [
+  'video.list',
+  'user.info.basic',
+  'video.publish',
+  'video.upload',
+  'user.info.profile',
+  'user.info.stats',
+];
+
+export function tiktokScopes(): string[] {
+  const configured = (process.env.TIKTOK_SCOPES || '')
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return configured.length ? configured : [...TIKTOK_DEFAULT_SCOPES];
+}
+
+// The redirect URI registered with TikTok. TIKTOK_REDIRECT_BASE_URL lets the
+// TikTok app use its own (branded) hostname without moving FRONTEND_URL, which
+// every other provider's registered redirect URI depends on.
+export function tiktokRedirectUri(): string {
+  const base = (
+    process.env.TIKTOK_REDIRECT_BASE_URL ||
+    process.env.FRONTEND_URL ||
+    ''
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  return `${
+    base.indexOf('https') === -1 ? 'https://redirectmeto.com/' : ''
+  }${base}/integrations/social/tiktok`;
+}
+
+export function tiktokUserInfoFields(scopes: string[]): string {
+  return [
+    'open_id',
+    'avatar_url',
+    'display_name',
+    'union_id',
+    ...(scopes.includes('user.info.profile') ? ['username'] : []),
+  ].join(',');
+}
 
 @Rules(
   [
@@ -36,14 +80,11 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   name = 'Tiktok';
   isBetweenSteps = false;
   convertToJPEG = true;
-  scopes = [
-    'video.list',
-    'user.info.basic',
-    'video.publish',
-    'video.upload',
-    'user.info.profile',
-    'user.info.stats',
-  ];
+  // TIKTOK_SCOPES (comma separated) narrows the requested scopes to what the
+  // TikTok app is approved for, e.g. "user.info.basic,video.publish,video.upload".
+  // Features that need a scope outside that list (profile username, stats,
+  // video list) are skipped instead of failing the connection.
+  scopes = tiktokScopes();
   override maxConcurrentJob = 10000;
   dto = TikTokDto;
   editor = 'normal' as const;
@@ -238,8 +279,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     if (body.indexOf('url_ownership_unverified') > -1) {
       return {
         type: 'bad-body' as const,
-        value:
-          'You have to upload the picture/video to Postiz when sending a URL',
+        value: `You have to upload the picture/video to ${brandNameServerSide()} when sending a URL`,
       };
     }
 
@@ -317,7 +357,9 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       },
     } = await (
       await fetch(
-        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name,union_id,username',
+        `https://open.tiktokapis.com/v2/user/info/?fields=${tiktokUserInfoFields(
+          this.scopes
+        )}`,
         {
           method: 'GET',
           headers: {
@@ -334,7 +376,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       id: open_id.replace(/-/g, ''),
       name: display_name,
       picture: avatar_url || '',
-      username: username,
+      username: username || display_name,
     };
   }
 
@@ -345,13 +387,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       url:
         'https://www.tiktok.com/v2/auth/authorize/' +
         `?client_key=${process.env.TIKTOK_CLIENT_ID}` +
-        `&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env?.FRONTEND_URL?.indexOf('https') === -1
-              ? 'https://redirectmeto.com/'
-              : ''
-          }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`
-        )}` +
+        `&redirect_uri=${encodeURIComponent(tiktokRedirectUri())}` +
         `&state=${state}` +
         `&response_type=code` +
         `&scope=${encodeURIComponent(this.scopes.join(','))}`,
@@ -371,11 +407,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       code: params.code,
       grant_type: 'authorization_code',
       code_verifier: params.codeVerifier,
-      redirect_uri: `${
-        process?.env?.FRONTEND_URL?.indexOf('https') === -1
-          ? 'https://redirectmeto.com/'
-          : ''
-      }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`,
+      redirect_uri: tiktokRedirectUri(),
     };
 
     const { access_token, refresh_token, scope } = await (
@@ -396,7 +428,9 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       },
     } = await (
       await fetch(
-        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name,union_id,username',
+        `https://open.tiktokapis.com/v2/user/info/?fields=${tiktokUserInfoFields(
+          this.scopes
+        )}`,
         {
           method: 'GET',
           headers: {
@@ -413,7 +447,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       refreshToken: refresh_token,
       expiresIn: dayjs().add(23, 'hours').unix() - dayjs().unix(),
       picture: avatar_url,
-      username: username,
+      username: username || display_name,
     };
   }
 
@@ -972,6 +1006,13 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     accessToken: string,
     date: number
   ): Promise<AnalyticsData[]> {
+    if (
+      !this.scopes.includes('user.info.stats') &&
+      !this.scopes.includes('video.list')
+    ) {
+      // Scope not granted to this TikTok app (TIKTOK_SCOPES).
+      return [];
+    }
     const today = dayjs().format('YYYY-MM-DD');
 
     try {
@@ -1112,6 +1153,10 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     id: string,
     accessToken: string
   ): Promise<{ id: string; url: string }[]> {
+    if (!this.scopes.includes('video.list')) {
+      // Scope not granted to this TikTok app (TIKTOK_SCOPES).
+      return [];
+    }
     try {
       const videoListResponse = await this.fetch(
         'https://open.tiktokapis.com/v2/video/list/?fields=id,cover_image_url,title',
@@ -1187,6 +1232,10 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     postId: string,
     fromDate: number
   ): Promise<AnalyticsData[]> {
+    if (!this.scopes.includes('video.list')) {
+      // Scope not granted to this TikTok app (TIKTOK_SCOPES).
+      return [];
+    }
     const today = dayjs().format('YYYY-MM-DD');
 
     try {

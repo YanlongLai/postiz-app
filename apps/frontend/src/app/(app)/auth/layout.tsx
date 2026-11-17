@@ -7,6 +7,7 @@ import { TestimonialComponent } from '@gitroom/frontend/components/auth/testimon
 import { LogoTextComponent } from '@gitroom/frontend/components/ui/logo-text.component';
 import { MantineWrapper } from '@gitroom/react/helpers/mantine.wrapper';
 import { Toaster } from '@gitroom/react/toaster/toaster';
+import { brandConfigServerSide } from '@gitroom/helpers/utils/brand';
 const ReturnUrlComponent = loadDynamic(() => import('./return.url.component'));
 export default async function AuthLayout({
   children,
@@ -14,6 +15,7 @@ export default async function AuthLayout({
   children: ReactNode;
 }) {
   const t = await getT();
+  const brand = brandConfigServerSide();
 
   return (
     <MantineWrapper>
@@ -27,15 +29,44 @@ export default async function AuthLayout({
             <div className="flex">{children}</div>
           </div>
         </div>
-        <div className="text-[36px] flex-1 pt-[88px] hidden lg:flex flex-col items-center">
-          <div className="text-center">
-            Over <span className="text-[42px] text-[#FC69FF]">20,000+</span>{' '}
-            Entrepreneurs use
-            <br />
-            Postiz To Grow Their Social Presence
+        {brand.whiteLabel ? (
+          <div className="flex-1 pt-[88px] px-[40px] hidden lg:flex flex-col items-center text-center gap-[20px]">
+            {!!brand.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={brand.logoUrl}
+                alt=""
+                width={96}
+                height={96}
+                className="rounded-[20px]"
+              />
+            )}
+            <div className="text-[36px]">{brand.name}</div>
+            {!!brand.tagline && (
+              <div className="text-[18px] text-[#B8B8B8] max-w-[560px]">
+                {brand.tagline}
+              </div>
+            )}
+            {!!brand.homeUrl && (
+              <a
+                href={brand.homeUrl}
+                className="text-[14px] text-[#B8B8B8] underline"
+              >
+                {brand.homeUrl.replace(/^https?:\/\//, '')}
+              </a>
+            )}
           </div>
-          <TestimonialComponent />
-        </div>
+        ) : (
+          <div className="text-[36px] flex-1 pt-[88px] hidden lg:flex flex-col items-center">
+            <div className="text-center">
+              Over <span className="text-[42px] text-[#FC69FF]">20,000+</span>{' '}
+              Entrepreneurs use
+              <br />
+              Postiz To Grow Their Social Presence
+            </div>
+            <TestimonialComponent />
+          </div>
+        )}
       </div>
     </MantineWrapper>
   );

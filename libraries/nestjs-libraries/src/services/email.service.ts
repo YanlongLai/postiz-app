@@ -6,6 +6,10 @@ import { NodeMailerProvider } from '@gitroom/nestjs-libraries/emails/node.mailer
 import { TemporalService } from 'nestjs-temporal-core';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { randomUUID } from 'crypto';
+import {
+  applyBrandName,
+  brandNameServerSide,
+} from '@gitroom/helpers/utils/brand';
 
 @Injectable()
 export class EmailService {
@@ -72,6 +76,11 @@ export class EmailService {
       return;
     }
 
+    // White-label: every outgoing email carries the configured product name.
+    const brandName = brandNameServerSide();
+    subject = applyBrandName(subject, brandName);
+    html = applyBrandName(html, brandName);
+
     const modifiedHtml = `
     <div style="
         background: linear-gradient(to bottom right, #e6f2ff, #f0e6ff);
@@ -118,7 +127,9 @@ export class EmailService {
                         margin: 0;
                     ">${process.env.EMAIL_FROM_NAME}</h2>
                     <div style="font-size: 12px">
-                      You can change your notification preferences in your <a href="${process.env.FRONTEND_URL}/settings">account settings.</a>
+                      You can change your notification preferences in your <a href="${
+                        process.env.BRAND_PUBLIC_URL || process.env.FRONTEND_URL
+                      }/settings">account settings.</a>
                      </div>
                 </div>
             </div>

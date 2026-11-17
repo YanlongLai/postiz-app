@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, FC, ReactNode, useContext, useEffect } from 'react';
+import { setClientBrandName } from '@gitroom/helpers/utils/brand.client';
 interface VariableContextInterface {
   stripeClient: string;
   billingEnabled: boolean;
@@ -35,6 +36,14 @@ interface VariableContextInterface {
   googleAdsId?: string;
   googleAdsTrialTracking?: string;
   recaptchaSiteKey?: string;
+  brandName?: string;
+  brandWhiteLabel?: boolean;
+  brandLogoUrl?: string;
+  brandTagline?: string;
+  brandHomeUrl?: string;
+  brandTermsUrl?: string;
+  brandPrivacyUrl?: string;
+  brandSourceUrl?: string;
 }
 const VariableContext = createContext({
   stripeClient: '',
@@ -69,6 +78,14 @@ const VariableContext = createContext({
   sentryDsn: '',
   extensionId: '',
   recaptchaSiteKey: '',
+  brandName: '',
+  brandWhiteLabel: false,
+  brandLogoUrl: '',
+  brandTagline: '',
+  brandHomeUrl: '',
+  brandTermsUrl: '',
+  brandPrivacyUrl: '',
+  brandSourceUrl: '',
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {
@@ -76,6 +93,9 @@ export const VariableContextComponent: FC<
   }
 > = (props) => {
   const { children, ...otherProps } = props;
+  // Must run during render (not in an effect) so translated strings rendered
+  // by children already carry the configured brand on the first paint.
+  setClientBrandName(otherProps.brandWhiteLabel ? otherProps.brandName : '');
   useEffect(() => {
     if (typeof window !== 'undefined') {
       // @ts-ignore

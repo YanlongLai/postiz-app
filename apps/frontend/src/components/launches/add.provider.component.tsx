@@ -1,6 +1,7 @@
 'use client';
 
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { brandText } from '@gitroom/helpers/utils/brand.client';
 import React, { FC, useCallback, useMemo } from 'react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { Input } from '@gitroom/react/form/input';
@@ -348,8 +349,8 @@ const ChromeExtensionWarning: FC<{
           We will store your cookies securely to facilitate the connection.
         </li>
         <li>
-          Postiz does not take responsibility for any issues arising or account
-          termination due to the use of this method.
+          {brandText('Postiz')} does not take responsibility for any issues
+          arising or account termination due to the use of this method.
         </li>
       </ul>
       <div className="flex gap-[10px] mt-[8px]">
@@ -457,7 +458,9 @@ export const AddProviderComponent: FC<{
               >
                 <Web3Providers
                   onComplete={(code, newState) => {
-                    window.location.href = `/integrations/social/${identifier}?code=${encodeURIComponent(code)}&state=${newState}${
+                    window.location.href = `/integrations/social/${identifier}?code=${encodeURIComponent(
+                      code
+                    )}&state=${newState}${
                       onboarding ? '&onboarding=true' : ''
                     }`;
                   }}

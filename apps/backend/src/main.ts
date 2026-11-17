@@ -1,4 +1,5 @@
 import { initializeSentry } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
+import { frontendUrlAliases } from '@gitroom/helpers/utils/public.origin';
 initializeSentry('backend', true);
 import compression from 'compression';
 
@@ -46,6 +47,8 @@ async function start() {
         process.env.FRONTEND_URL,
         'http://localhost:6274',
         ...(process.env.MAIN_URL ? [process.env.MAIN_URL] : []),
+        // Extra public hostnames serving the same UI (see public.origin.ts).
+        ...frontendUrlAliases(),
         // Optional: the Canva app calls the public API from its iframe origin
         // (browsers send it lowercase, e.g. https://app-aabbcc.canva-apps.com)
         ...(process.env.CANVA_APP_ORIGIN

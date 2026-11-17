@@ -1,6 +1,21 @@
 'use client';
 
+import { useVariables } from '@gitroom/react/helpers/variable.context';
+
 export const Logo = () => {
+  const { brandLogoUrl, brandName } = useVariables();
+  if (brandLogoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={brandLogoUrl}
+        alt={brandName || 'Logo'}
+        width={44}
+        height={44}
+        className="mt-[8px] min-w-[44px] min-h-[44px] rounded-[10px]"
+      />
+    );
+  }
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
