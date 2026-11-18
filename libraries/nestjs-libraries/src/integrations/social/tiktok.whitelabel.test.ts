@@ -18,6 +18,7 @@ describe('TikTok branded redirect host and approved scopes', () => {
     process.env.FRONTEND_URL = 'https://postiz.example.test';
     delete process.env.TIKTOK_REDIRECT_BASE_URL;
     delete process.env.TIKTOK_SCOPES;
+    delete process.env.TIKTOK_DISABLE_AUTO_AUTH;
   });
   afterEach(() => {
     global.fetch = originalFetch;
@@ -97,5 +98,49 @@ describe('TikTok branded redirect host and approved scopes', () => {
   it('requests username only with user.info.profile', () => {
     expect(tiktokUserInfoFields(['user.info.basic'])).not.toContain('username');
     expect(tiktokUserInfoFields(TIKTOK_DEFAULT_SCOPES)).toContain('username');
+  });
+
+  it('adds disable_auto_auth=1 only when TIKTOK_DISABLE_AUTO_AUTH is set', async () => {
+    let { url } = await new TiktokProvider().generateAuthUrl();
+    expect(new URL(url).searchParams.has('disable_auto_auth')).toBe(false);
+    process.env.TIKTOK_DISABLE_AUTO_AUTH = 'true';
+    ({ url } = await new TiktokProvider().generateAuthUrl());
+    expect(new URL(url).searchParams.get('disable_auto_auth')).toBe('1');
+  });
+
+  it('creatorInfo maps TikTok creator_info and reports when posting is blocked', async () => {
+    global.fetch = jest.fn(async () =>
+      response({
+        data: {
+          creator_nickname: 'DappGo',
+          creator_username: 'dappgo01',
+          privacy_level_options: ['SELF_ONLY'],
+          comment_disabled: false,
+          duet_disabled: true,
+          stitch_disabled: true,
+          max_video_post_duration_sec: 600,
+        },
+        error: { code: 'ok' },
+      })
+    ) as any;
+    const info: any = await new TiktokProvider().creatorInfo('token');
+    expect(info).toMatchObject({
+      ok: true,
+      canPost: true,
+      nickname: 'DappGo',
+      username: 'dappgo01',
+      privacyLevelOptions: ['SELF_ONLY'],
+      duetDisabled: true,
+      stitchDisabled: true,
+      maxVideoPostDurationSec: 600,
+    });
+    global.fetch = jest.fn(async () =>
+      response({ error: { code: 'spam_risk_too_many_posts', message: 'x' } })
+    ) as any;
+    expect(await new TiktokProvider().creatorInfo('token')).toMatchObject({
+      ok: false,
+      canPost: false,
+      errorCode: 'spam_risk_too_many_posts',
+    });
   });
 });

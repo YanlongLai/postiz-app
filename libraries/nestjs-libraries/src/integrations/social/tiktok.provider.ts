@@ -44,6 +44,12 @@ export function tiktokScopes(): string[] {
 // The redirect URI registered with TikTok. TIKTOK_REDIRECT_BASE_URL lets the
 // TikTok app use its own (branded) hostname without moving FRONTEND_URL, which
 // every other provider's registered redirect URI depends on.
+export function tiktokDisableAutoAuth(): boolean {
+  return ['1', 'true', 'yes'].includes(
+    (process.env.TIKTOK_DISABLE_AUTO_AUTH || '').trim().toLowerCase()
+  );
+}
+
 export function tiktokRedirectUri(): string {
   const base = (
     process.env.TIKTOK_REDIRECT_BASE_URL ||
@@ -390,6 +396,9 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
         `&redirect_uri=${encodeURIComponent(tiktokRedirectUri())}` +
         `&state=${state}` +
         `&response_type=code` +
+        // TIKTOK_DISABLE_AUTO_AUTH=true always shows TikTok's consent page, even when
+        // the account already authorized this app (Login Kit `disable_auto_auth=1`).
+        (tiktokDisableAutoAuth() ? `&disable_auto_auth=1` : '') +
         `&scope=${encodeURIComponent(this.scopes.join(','))}`,
       codeVerifier: state,
       state,
@@ -449,6 +458,52 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       picture: avatar_url,
       username: username || display_name,
     };
+  }
+
+  // Content Sharing Guidelines: the Post to TikTok screen must render the
+  // latest creator info (nickname, allowed privacy levels, disabled
+  // interactions, max video duration, and whether the creator can post now).
+  // Called from the composer through /integrations/function.
+  async creatorInfo(accessToken: string) {
+    try {
+      const res = await fetch(
+        'https://open.tiktokapis.com/v2/post/publish/creator_info/query/',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=UTF-8',
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const body = await res.json();
+      const code = body?.error?.code;
+      if (code && code !== 'ok') {
+        return {
+          ok: false,
+          canPost: false,
+          errorCode: String(code),
+          message: String(body?.error?.message || ''),
+        };
+      }
+      const d = body?.data || {};
+      return {
+        ok: true,
+        canPost: true,
+        nickname: d.creator_nickname || '',
+        username: d.creator_username || '',
+        avatar: d.creator_avatar_url || '',
+        privacyLevelOptions: Array.isArray(d.privacy_level_options)
+          ? d.privacy_level_options
+          : [],
+        commentDisabled: !!d.comment_disabled,
+        duetDisabled: !!d.duet_disabled,
+        stitchDisabled: !!d.stitch_disabled,
+        maxVideoPostDurationSec: d.max_video_post_duration_sec || 0,
+      };
+    } catch (err) {
+      return { ok: false, canPost: false, errorCode: 'network', message: '' };
+    }
   }
 
   async maxVideoLength(accessToken: string) {
