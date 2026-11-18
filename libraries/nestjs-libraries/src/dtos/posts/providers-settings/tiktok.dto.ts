@@ -1,5 +1,15 @@
 import {
-  IsBoolean, ValidateIf, IsIn, IsString, MaxLength, IsOptional, IsDefined, IsNumber, Min, Max, ValidateNested
+  IsBoolean,
+  ValidateIf,
+  IsIn,
+  IsString,
+  MaxLength,
+  IsOptional,
+  IsDefined,
+  IsNumber,
+  Min,
+  Max,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JSONSchema } from 'class-validator-jsonschema';
@@ -175,4 +185,35 @@ export class TikTokDto {
       'Only use "UPLOAD" when the user explicitly asks to review or edit the post inside the TikTok app before publishing.',
   })
   content_posting_method: 'DIRECT_POST' | 'UPLOAD';
+
+  // Commercial content disclosure switch (UI). When on, at least one of
+  // brand_organic_toggle / brand_content_toggle must be chosen (TikTok Content
+  // Sharing Guidelines). Optional, so existing API clients are unaffected.
+  @IsOptional()
+  @IsBoolean()
+  @JSONSchema({
+    description:
+      'Optional. When true, at least one of brand_organic_toggle (your brand) or brand_content_toggle (branded content) must be true.',
+  })
+  disclose?: boolean;
+
+  // Validation-only guards (never sent to TikTok). They fail only in the
+  // invalid combinations, with the wording TikTok prescribes.
+  @ValidateIf(
+    (p) =>
+      p.disclose === true && !p.brand_organic_toggle && !p.brand_content_toggle
+  )
+  @IsIn(['__never__'], {
+    message:
+      'You need to indicate if your content promotes yourself, a third party, or both.',
+  })
+  disclosure_choice_required?: string;
+
+  @ValidateIf(
+    (p) => p.brand_content_toggle === true && p.privacy_level === 'SELF_ONLY'
+  )
+  @IsIn(['__never__'], {
+    message: 'Branded content visibility cannot be set to private.',
+  })
+  branded_content_not_private?: string;
 }

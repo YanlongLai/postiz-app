@@ -37,6 +37,8 @@ import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { capitalize } from 'lodash';
 import { SelectCustomer } from '@gitroom/frontend/components/launches/select.customer';
 import { CopilotPopup } from '@copilotkit/react-ui';
+import { useTikTokCompliance } from '@gitroom/frontend/components/new-launch/providers/tiktok/tiktok.compliance.store';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { DummyCodeComponent } from '@gitroom/frontend/components/new-launch/dummy.code.component';
 import { CreationMethodBadge } from '@gitroom/frontend/components/launches/creation.method.badge';
 import {
@@ -69,6 +71,8 @@ import { useClickOutside } from '@mantine/hooks';
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
+  const { brandWhiteLabel } = useVariables();
+  const tiktokBrandedContent = useTikTokCompliance((s) => s.brandedContent);
   const fetch = useFetch();
   const ref = useRef(null);
   const existingData = useExistingData();
@@ -815,6 +819,39 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
             )}
           </div>
           <div className="pe-[20px] flex items-center justify-end gap-[8px]">
+            {selectedIntegrations.some((p) =>
+              p.integration?.identifier?.startsWith('tiktok')
+            ) && (
+              // TikTok Content Sharing Guidelines: a declaration right before
+              // the publish button, wording depends on the disclosure choice.
+              <div className="text-[12px] max-w-[260px] text-balance text-end">
+                {t(
+                  'by_posting_you_agree_to_tiktoks',
+                  "By posting, you agree to TikTok's"
+                )}{' '}
+                {tiktokBrandedContent && (
+                  <>
+                    <a
+                      target="_blank"
+                      rel="noopener"
+                      className="text-[#B69DEC] hover:underline"
+                      href="https://www.tiktok.com/legal/page/global/bc-policy/en"
+                    >
+                      {t('branded_content_policy', 'Branded Content Policy')}
+                    </a>{' '}
+                    {t('and', 'and')}{' '}
+                  </>
+                )}
+                <a
+                  target="_blank"
+                  rel="noopener"
+                  className="text-[#B69DEC] hover:underline"
+                  href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en"
+                >
+                  {t('music_usage_confirmation', 'Music Usage Confirmation')}
+                </a>
+              </div>
+            )}
             {existingData?.integration && (
               <button
                 onClick={deletePost}
@@ -1042,11 +1079,12 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
           />
         </BottomSheet>
       )}
-      <CopilotPopup
-        className="mobile:!z-[460] mobile:!bottom-[112px]"
-        hitEscapeToClose={false}
-        clickOutsideToClose={true}
-        instructions={`
+      {!brandWhiteLabel && (
+        <CopilotPopup
+          className="mobile:!z-[460] mobile:!bottom-[112px]"
+          hitEscapeToClose={false}
+          clickOutsideToClose={true}
+          instructions={`
 You are an assistant that help the user to schedule their social media posts,
 Here are the things you can do:
 - Add a new comment / post to the list of posts
@@ -1057,14 +1095,15 @@ Here are the things you can do:
 Post content can be added using the addPostContentFor{num} function.
 After using the addPostFor{num} it will create a new addPostContentFor{num+ 1} function.
 `}
-        labels={{
-          title: t('your_assistant', 'Your Assistant'),
-          initial: t(
-            'assistant_initial_message',
-            'Hi! I can help you to refine your social media posts.'
-          ),
-        }}
-      />
+          labels={{
+            title: t('your_assistant', 'Your Assistant'),
+            initial: t(
+              'assistant_initial_message',
+              'Hi! I can help you to refine your social media posts.'
+            ),
+          }}
+        />
+      )}
     </div>
   );
 };

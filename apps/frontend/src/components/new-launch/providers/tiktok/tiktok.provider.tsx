@@ -1,9 +1,6 @@
 'use client';
 
-import {
-  FC,
-  useMemo,
-} from 'react';
+import { FC, useEffect, useMemo, useState } from 'react';
 import {
   PostComment,
   withProvider,
@@ -19,20 +16,41 @@ import { Input } from '@gitroom/react/form/input';
 import { TiktokPreview } from '@gitroom/frontend/components/new-launch/providers/tiktok/tiktok.preview';
 import { TikTokMusicSelector } from '@gitroom/frontend/components/new-launch/providers/tiktok/tiktok.music';
 import { TikTokLocationSelector } from '@gitroom/frontend/components/new-launch/providers/tiktok/tiktok.location';
+import { useCustomProviderFunction } from '@gitroom/frontend/components/launches/helpers/use.custom.provider.function';
+import { useTikTokCompliance } from '@gitroom/frontend/components/new-launch/providers/tiktok/tiktok.compliance.store';
+
+interface TikTokCreatorInfo {
+  ok: boolean;
+  canPost: boolean;
+  errorCode?: string;
+  nickname?: string;
+  username?: string;
+  privacyLevelOptions?: string[];
+  commentDisabled?: boolean;
+  duetDisabled?: boolean;
+  stitchDisabled?: boolean;
+  maxVideoPostDurationSec?: number;
+}
 
 const TikTokSettings: FC<{
   values?: any;
 }> = (props) => {
-  const { watch, register } = useSettings();
+  const { watch, register, setValue } = useSettings();
   const { value, integration } = useIntegration();
   const t = useT();
+  const customFunc = useCustomProviderFunction();
+  const setBrandedContent = useTikTokCompliance((s) => s.setBrandedContent);
+  const [creator, setCreator] = useState<TikTokCreatorInfo | null>(null);
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
 
   // Music and location come from the Business API (v1.3) - the legacy Content
   // Posting API used by the "tiktok" identifier has no such fields.
   const isBusiness = integration?.identifier === 'tiktok-business';
 
   const isTitle = useMemo(() => {
-    return value?.[0]?.image?.some((p) => (p?.path?.indexOf?.('mp4') ?? -1) === -1);
+    return value?.[0]?.image?.some(
+      (p) => (p?.path?.indexOf?.('mp4') ?? -1) === -1
+    );
   }, [value]);
 
   const hasMedia = (value?.[0]?.image?.length ?? 0) > 0;
@@ -44,6 +62,60 @@ const TikTokSettings: FC<{
   const brand_content_toggle = watch('brand_content_toggle');
   const content_posting_method = watch('content_posting_method');
   const isUploadMode = content_posting_method === 'UPLOAD';
+  const privacy_level = watch('privacy_level');
+  const isLegacyTikTok = integration?.identifier === 'tiktok';
+
+  // Content Sharing Guidelines 1): render the latest creator info.
+  useEffect(() => {
+    if (!isLegacyTikTok || !integration?.id) return;
+    let cancelled = false;
+    customFunc
+      .get('creatorInfo')
+      .then((info: TikTokCreatorInfo) => {
+        if (!cancelled) setCreator(info || null);
+      })
+      .catch(() => {
+        if (!cancelled) setCreator(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [integration?.id, isLegacyTikTok]);
+
+  // Interactions the creator disabled in TikTok must be greyed out and off.
+  useEffect(() => {
+    if (creator?.commentDisabled) setValue('comment', false);
+    if (creator?.duetDisabled) setValue('duet', false);
+    if (creator?.stitchDisabled) setValue('stitch', false);
+  }, [creator, setValue]);
+
+  // Feed the footer declaration ("... Branded Content Policy and ...").
+  useEffect(() => {
+    setBrandedContent(!!disclose && !!brand_content_toggle);
+    return () => setBrandedContent(false);
+  }, [disclose, brand_content_toggle, setBrandedContent]);
+
+  // Content Sharing Guidelines 1c): check the video duration against the
+  // creator's max_video_post_duration_sec.
+  const firstVideoPath = useMemo(
+    () =>
+      value?.[0]?.image?.find(
+        (p: any) => (p?.path?.indexOf?.('mp4') ?? -1) > -1
+      )?.path as string | undefined,
+    [value]
+  );
+  useEffect(() => {
+    setVideoSeconds(null);
+    if (!firstVideoPath || typeof document === 'undefined') return;
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => setVideoSeconds(video.duration || null);
+    video.src = firstVideoPath;
+  }, [firstVideoPath]);
+  const tooLong =
+    !!creator?.maxVideoPostDurationSec &&
+    !!videoSeconds &&
+    videoSeconds > creator.maxVideoPostDurationSec;
 
   // TikTok ignores every setting except the title / content when the posting
   // method is UPLOAD, so we hide them rather than pretend they apply. The fields
@@ -132,21 +204,71 @@ const TikTokSettings: FC<{
           <div>{tiktokRestrictionNotice}</div>
         </div>
       )}
+      {isLegacyTikTok && (
+        <div className="text-[14px] mb-[12px]">
+          {t('tiktok_posting_to', 'Posting to TikTok account:')}{' '}
+          <strong>
+            {creator?.nickname || integration?.name}
+            {creator?.username ? ` (@${creator.username})` : ''}
+          </strong>
+        </div>
+      )}
+      {creator && creator.ok === false && (
+        <div className="text-[14px] mb-[12px] text-red-400">
+          {t(
+            'tiktok_creator_cannot_post',
+            'This TikTok account cannot make more posts right now. Please try again later.'
+          )}
+        </div>
+      )}
+      {tooLong && (
+        <div className="text-[14px] mb-[12px] text-red-400">
+          {t(
+            'tiktok_video_too_long',
+            'This video is longer than your TikTok account allows ({{max}} seconds).',
+            { max: creator?.maxVideoPostDurationSec }
+          )}
+        </div>
+      )}
       {isTitle && <Input label="Title" {...register('title')} maxLength={89} />}
       <div className={directPostOnly}>
         <Select
           label={t('label_who_can_see_this_video', 'Who can see this video?')}
           disabled={isUploadMode}
           {...register('privacy_level', {
-            value: 'PUBLIC_TO_EVERYONE',
+            value: '',
           })}
         >
           <option value="">{t('select', 'Select')}</option>
-          {privacyLevel.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
+          {privacyLevel
+            .filter(
+              (item) =>
+                !creator?.privacyLevelOptions?.length ||
+                creator.privacyLevelOptions.includes(item.value)
+            )
+            .map((item) => {
+              const blocked =
+                item.value === 'SELF_ONLY' &&
+                !!disclose &&
+                !!brand_content_toggle;
+              return (
+                <option
+                  key={item.value}
+                  value={item.value}
+                  disabled={blocked}
+                  title={
+                    blocked
+                      ? t(
+                          'tiktok_branded_content_not_private',
+                          'Branded content visibility cannot be set to private.'
+                        )
+                      : undefined
+                  }
+                >
+                  {item.label}
+                </option>
+              );
+            })}
         </Select>
       </div>
       <div className="text-[14px] mt-[10px] mb-[18px] text-balance">
@@ -169,7 +291,12 @@ const TikTokSettings: FC<{
           </option>
         ))}
       </Select>
-      {isUploadMode && <div className="-mt-[23px] mb-[23px] text-red-600">After posting you fill find a notification inside your Inbox about your post (not content studio)</div>}
+      {isUploadMode && (
+        <div className="-mt-[23px] mb-[23px] text-red-600">
+          After posting you fill find a notification inside your Inbox about
+          your post (not content studio)
+        </div>
+      )}
       <div className={clsx('flex flex-col', directPostOnly)}>
         <Select
           label={
@@ -193,7 +320,7 @@ const TikTokSettings: FC<{
           {isBusiness
             ? t(
                 'tiktok_random_music_only_for_photos',
-                'This feature is available only for photos, it adds a random trending track from TikTok\'s commercial music library.'
+                "This feature is available only for photos, it adds a random trending track from TikTok's commercial music library."
               )
             : t(
                 'this_feature_available_only_for_photos',
@@ -231,7 +358,7 @@ const TikTokSettings: FC<{
           <Checkbox
             variant="hollow"
             label={t('label_duet', 'Allow Duet')}
-            disabled={isUploadMode}
+            disabled={isUploadMode || !!creator?.duetDisabled}
             {...register('duet', {
               value: false,
             })}
@@ -239,7 +366,7 @@ const TikTokSettings: FC<{
           <Checkbox
             label={t('label_stitch', 'Allow Stitch')}
             variant="hollow"
-            disabled={isUploadMode}
+            disabled={isUploadMode || !!creator?.stitchDisabled}
             {...register('stitch', {
               value: false,
             })}
@@ -258,9 +385,9 @@ const TikTokSettings: FC<{
           <Checkbox
             label={t('label_comments', 'Allow Comments')}
             variant="hollow"
-            disabled={isUploadMode}
+            disabled={isUploadMode || !!creator?.commentDisabled}
             {...register('comment', {
-              value: true,
+              value: false,
             })}
           />
           <Checkbox
@@ -288,10 +415,20 @@ const TikTokSettings: FC<{
                 </svg>
               </div>
               <div>
-                {t(
-                  'your_video_will_be_labeled_promotional',
-                  'Your video will be labeled "Promotional Content".'
-                )}
+                {brand_content_toggle
+                  ? t(
+                      'tiktok_labeled_paid_partnership',
+                      "Your video will be labeled as 'Paid partnership'"
+                    )
+                  : brand_organic_toggle
+                  ? t(
+                      'tiktok_labeled_promotional_content',
+                      "Your video will be labeled as 'Promotional content'"
+                    )
+                  : t(
+                      'tiktok_disclosure_choose',
+                      'You need to indicate if your content promotes yourself, a third party, or both.'
+                    )}
                 <br />
                 {t(
                   'this_cannot_be_changed_once_posted',
@@ -307,7 +444,12 @@ const TikTokSettings: FC<{
             )}
           </div>
         </div>
-        <div className={clsx(!disclose && 'invisible h-0 overflow-hidden', 'mt-[20px]')}>
+        <div
+          className={clsx(
+            !disclose && 'invisible h-0 overflow-hidden',
+            'mt-[20px]'
+          )}
+        >
           <Checkbox
             variant="hollow"
             label={t('label_your_brand', 'Your brand')}
@@ -330,7 +472,7 @@ const TikTokSettings: FC<{
           <Checkbox
             variant="hollow"
             label={t('label_branded_content', 'Branded content')}
-            disabled={isUploadMode}
+            disabled={isUploadMode || privacy_level === 'SELF_ONLY'}
             {...register('brand_content_toggle', {
               value: false,
             })}
@@ -346,36 +488,21 @@ const TikTokSettings: FC<{
               'This video will be classified as Branded Content.'
             )}
           </div>
-          {(brand_organic_toggle || brand_content_toggle) && (
+          {privacy_level === 'SELF_ONLY' && (
             <div className="my-[10px] text-[14px] text-balance">
               {t(
-                'by_posting_you_agree_to_tiktoks',
-                "By posting, you agree to TikTok's"
+                'tiktok_branded_content_not_private',
+                'Branded content visibility cannot be set to private.'
               )}
-              {[
-                brand_organic_toggle || brand_content_toggle ? (
-                  <a
-                    target="_blank"
-                    className="text-[#B69DEC] hover:underline"
-                    href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en"
-                  >
-                    {t('music_usage_confirmation', 'Music Usage Confirmation')}
-                  </a>
-                ) : undefined,
-                brand_content_toggle ? <> {t('and', 'and')} </> : undefined,
-                brand_content_toggle ? (
-                  <a
-                    target="_blank"
-                    className="text-[#B69DEC] hover:underline"
-                    href="https://www.tiktok.com/legal/page/global/bc-policy/en"
-                  >
-                    {t('branded_content_policy', 'Branded Content Policy')}
-                  </a>
-                ) : undefined,
-              ].filter((f) => f)}
             </div>
           )}
         </div>
+      </div>
+      <div className="text-[14px] mt-[20px] text-balance">
+        {t(
+          'tiktok_processing_notice',
+          'After you publish, it may take a few minutes for your content to process and appear on your TikTok profile.'
+        )}
       </div>
     </div>
   );
