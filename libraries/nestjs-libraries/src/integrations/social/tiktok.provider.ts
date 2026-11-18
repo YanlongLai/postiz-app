@@ -44,6 +44,12 @@ export function tiktokScopes(): string[] {
 // The redirect URI registered with TikTok. TIKTOK_REDIRECT_BASE_URL lets the
 // TikTok app use its own (branded) hostname without moving FRONTEND_URL, which
 // every other provider's registered redirect URI depends on.
+export function tiktokDisableAutoAuth(): boolean {
+  return ['1', 'true', 'yes'].includes(
+    (process.env.TIKTOK_DISABLE_AUTO_AUTH || '').trim().toLowerCase()
+  );
+}
+
 export function tiktokRedirectUri(): string {
   const base = (
     process.env.TIKTOK_REDIRECT_BASE_URL ||
@@ -390,6 +396,9 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
         `&redirect_uri=${encodeURIComponent(tiktokRedirectUri())}` +
         `&state=${state}` +
         `&response_type=code` +
+        // TIKTOK_DISABLE_AUTO_AUTH=true always shows TikTok's consent page, even when
+        // the account already authorized this app (Login Kit `disable_auto_auth=1`).
+        (tiktokDisableAutoAuth() ? `&disable_auto_auth=1` : '') +
         `&scope=${encodeURIComponent(this.scopes.join(','))}`,
       codeVerifier: state,
       state,

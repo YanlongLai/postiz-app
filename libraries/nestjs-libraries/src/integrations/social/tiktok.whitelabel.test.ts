@@ -18,6 +18,7 @@ describe('TikTok branded redirect host and approved scopes', () => {
     process.env.FRONTEND_URL = 'https://postiz.example.test';
     delete process.env.TIKTOK_REDIRECT_BASE_URL;
     delete process.env.TIKTOK_SCOPES;
+    delete process.env.TIKTOK_DISABLE_AUTO_AUTH;
   });
   afterEach(() => {
     global.fetch = originalFetch;
@@ -97,5 +98,13 @@ describe('TikTok branded redirect host and approved scopes', () => {
   it('requests username only with user.info.profile', () => {
     expect(tiktokUserInfoFields(['user.info.basic'])).not.toContain('username');
     expect(tiktokUserInfoFields(TIKTOK_DEFAULT_SCOPES)).toContain('username');
+  });
+
+  it('adds disable_auto_auth=1 only when TIKTOK_DISABLE_AUTO_AUTH is set', async () => {
+    let { url } = await new TiktokProvider().generateAuthUrl();
+    expect(new URL(url).searchParams.has('disable_auto_auth')).toBe(false);
+    process.env.TIKTOK_DISABLE_AUTO_AUTH = 'true';
+    ({ url } = await new TiktokProvider().generateAuthUrl());
+    expect(new URL(url).searchParams.get('disable_auto_auth')).toBe('1');
   });
 });
