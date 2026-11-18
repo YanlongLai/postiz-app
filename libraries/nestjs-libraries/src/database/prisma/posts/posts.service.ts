@@ -51,6 +51,7 @@ import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { mediaTypeForPath } from '@gitroom/helpers/utils/media.type';
 import { stripLinks } from '@gitroom/helpers/utils/strip.links';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -566,7 +567,7 @@ export class PostsService {
                     process.env.NEXT_PUBLIC_UPLOAD_STATIC_DIRECTORY +
                     m.path
                   : m.path,
-              type: 'image',
+              type: mediaTypeForPath(m.path),
               path:
                 m.path.indexOf('http') === -1
                   ? process.env.UPLOAD_DIRECTORY + m.path
