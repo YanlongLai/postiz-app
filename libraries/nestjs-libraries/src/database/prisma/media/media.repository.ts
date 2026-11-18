@@ -1,6 +1,7 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { Injectable } from '@nestjs/common';
 import { SaveMediaInformationDto } from '@gitroom/nestjs-libraries/dtos/media/save.media.information.dto';
+import { mediaTypeForPath } from '@gitroom/helpers/utils/media.type';
 
 @Injectable()
 export class MediaRepository {
@@ -17,12 +18,15 @@ export class MediaRepository {
         name: fileName,
         path: filePath,
         originalName: originalName || null,
+        // the column defaults to 'image', which mislabelled every MP4
+        type: mediaTypeForPath(filePath),
       },
       select: {
         id: true,
         name: true,
         originalName: true,
         path: true,
+        type: true,
         thumbnail: true,
         alt: true,
         status: true,
@@ -47,7 +51,9 @@ export class MediaRepository {
       where: { id, organizationId: org },
       data: {
         ...(data.name ? { name: data.name } : {}),
-        ...(data.path ? { path: data.path } : {}),
+        ...(data.path
+          ? { path: data.path, type: mediaTypeForPath(data.path) }
+          : {}),
         ...(data.fileSize ? { fileSize: data.fileSize } : {}),
         status: data.error ? 'failed' : 'ready',
         processingError: data.error || null,
